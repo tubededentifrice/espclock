@@ -26,6 +26,9 @@ class NetworkTimeService {
   Mode mode() const { return mode_; }
   bool portalActive() const { return mode_ == Mode::kPortal; }
   bool wifiBusy() const;
+  bool backgroundRefreshActive() const {
+    return backgroundRefreshActive_;
+  }
 
  private:
   void startPortal();
@@ -65,6 +68,7 @@ class NetworkTimeService {
   bool stationMacRandomized_ = false;
   bool hasConfirmedSync_ = false;
   bool bleResyncGraceActive_ = false;
+  bool backgroundRefreshActive_ = false;
 
   static NetworkTimeService* instance_;
   static volatile bool ntpSynced_;

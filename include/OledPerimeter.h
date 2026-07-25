@@ -14,6 +14,19 @@ struct LitSpan {
   uint16_t count;
 };
 
+// A one-dimensional ordered-dither rank keeps thin perimeter strokes visible
+// on every edge. At the minimum 2/16 coverage, one path pixel in every eight
+// is retained instead of allowing a screen-space mask to erase a whole side.
+constexpr uint8_t kDitherRank[16] = {
+    0, 8, 4, 12, 2, 10, 6, 14, 1, 9, 5, 13, 3, 11, 7, 15};
+
+inline bool isPixelVisible(const uint16_t index,
+                           const uint8_t coverageSixteenths) {
+  const uint8_t boundedCoverage =
+      coverageSixteenths < 16U ? coverageSixteenths : 16U;
+  return kDitherRank[index & 0x0FU] < boundedCoverage;
+}
+
 constexpr uint16_t pixelCount(const uint16_t width, const uint16_t height) {
   return width < 2U || height < 2U
              ? 0U

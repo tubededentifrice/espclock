@@ -17,7 +17,7 @@ behavior has been proven on the bench.
 3. If BLE has not already synchronized this boot, starts a two-minute no-install Wi-Fi portal named `KidsClock-xxxx` after the two-minute onboarding window. Joining it lets the phone browser transfer its time and offset automatically, including after travel.
 4. As a last resort, tries open Wi-Fi access points in signal-strength order, never retrying a failed BSSID in the same boot, and requests UTC from NTP.
 5. Keeps time in the ESP while powered, mirrors it to an available RTC, and
-   reopens bounded synchronization opportunities every six hours.
+   silently reopens bounded synchronization opportunities every six hours.
 6. Samples room light about once per second, filters it over several seconds, and adjusts the display through eight brightness levels.
 
 Radio failures never stop the clock or blank a valid display.
@@ -293,16 +293,19 @@ The current firmware stores a validated offset in 15-minute-capable minutes, not
 
 | Display | Meaning |
 |---|---|
-| OLED `HH:MM`, steady colon and clockwise one-pixel perimeter | Valid local time; starting at top-center, even minutes fill the perimeter and odd minutes erase the same path in 60 equal steps |
+| OLED `HH:MM`, steady colon and clockwise perimeter | Valid local time; starting at top-center, even minutes fill the perimeter and odd minutes erase the same path in 60 equal steps; dim levels retain evenly spaced pixels along every reached edge |
 | TM1637 `HH:MM`, one blink per second | Phone-confirmed local offset this boot |
 | TM1637 `HH MM`, brief colon pulse every two seconds | Valid UTC with a retained, not-yet-confirmed timezone offset |
-| `PAIR` alternating with time | BLE pairing/sync opportunity |
+| `PAIR` alternating with time | Boot-time BLE onboarding opportunity |
 | `SET` on OLED / `SEt` on TM1637 | No-app phone setup portal is active |
 | `WIFI` / seven-segment approximation | Trying an open network/NTP |
 | `----` | No trustworthy time is available yet |
 | `RESET` on OLED / `rSt` on TM1637 | BOOT recovery button is being held; keep holding for five seconds, then release |
 
-The pairing message yields to a valid time most of the time; network work never leaves a valid clock blank.
+Boot-time setup messages yield to a valid time most of the time. Later periodic
+refreshes never replace valid time with `PAIR`, `SET`, `WIFI`, `SYNC`, or any
+other radio status. If the authorized phone is away, the clock continues
+normally and retries on the next scheduled refresh.
 
 ## BLE time service
 
@@ -380,10 +383,12 @@ some small OLED modules show little perceived change across their contrast
 range, the SSD1306 backend also uses flicker-free spatial dithering from 12.5%
 pixel coverage at level 0 to 100% at level 7. A fully covered sensor reading
 around 0.83 lux settles to level 0; the sensor-missing fallback level 2 retains
-37.5% coverage. Firmware first tries the configured BH1750 address and then the
-other valid address (`0x23`/`0x5C`). If the BH1750 is absent, cannot start its
-next one-shot measurement, or stops producing valid, ready samples, the display
-remains usable at fallback level 2 and the sensor is retried every 30 seconds.
+37.5% coverage. The one-pixel seconds perimeter is sampled separately along its
+clockwise path so low coverage cannot erase an entire screen edge. Firmware
+first tries the configured BH1750 address and then the other valid address
+(`0x23`/`0x5C`). If the BH1750 is absent, cannot start its next one-shot
+measurement, or stops producing valid, ready samples, the display remains usable
+at fallback level 2 and the sensor is retried every 30 seconds.
 
 For bench diagnosis, temporarily build the affected profile with
 `CLOCK_LIGHT_DIAGNOSTICS=1` to log each raw and filtered lux sample, selected
@@ -417,7 +422,10 @@ At each later six-hour refresh, an already connected iPhone gets a 90-second
 BLE-first grace period covering the firmware's bounded notification retries.
 Open-Wi-Fi scanning starts only if that BLE path disconnects or produces no
 accepted update. A successful BLE update resets the normal six-hour schedule.
-This grace does not delay the boot onboarding window or captive portal.
+The entire later refresh is visually silent while valid time is available,
+including BLE retries, Wi-Fi scan/NTP fallback, and timeouts. A missing phone or
+failed fallback simply returns to the normal six-hour schedule. This grace does
+not delay the boot onboarding window or captive portal.
 
 Automatic light sleep is not enabled by the pinned precompiled Arduino-ESP32
 framework, whose power-management component is disabled. Deep sleep is
@@ -457,7 +465,7 @@ Do not close or pot the case until every applicable physical item passes.
 
 ### Automated
 
-- [x] `uv run pio test -e native` passes (20/20).
+- [x] `uv run pio test -e native` passes (24/24).
 - [x] `uv run pio run -e esp32-devkit-oled-128x64` completes.
 - [x] All six display/board profiles compile in the final verification matrix.
 - [x] No firmware compiler warnings are reported.
@@ -515,7 +523,9 @@ Do not close or pot the case until every applicable physical item passes.
   open candidates without rescanning between failures.
 - [ ] Captive/no-Internet open networks time out and return to the clock.
 - [ ] With all radios unavailable, valid RTC time remains displayed.
-- [ ] Six-hour resync scheduling does not interrupt display service.
+- [ ] With the authorized phone out of range for two consecutive six-hour
+  refreshes, the display never leaves the normal time and the clock retries on
+  both schedules.
 
 ### Enclosure/RF
 

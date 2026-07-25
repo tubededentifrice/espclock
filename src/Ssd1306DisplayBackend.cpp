@@ -147,9 +147,14 @@ void Ssd1306DisplayBackend::drawPerimeterProgress(
     const uint8_t second) {
   const oledperimeter::LitSpan litSpan =
       oledperimeter::litSpanForTime(width_, height_, minute, second);
+  const uint8_t coverage =
+      oledbrightness::ditherThreshold(brightness_);
   const uint16_t endIndex =
       static_cast<uint16_t>(litSpan.first + litSpan.count);
   for (uint16_t index = litSpan.first; index < endIndex; ++index) {
+    if (!oledperimeter::isPixelVisible(index, coverage)) {
+      continue;
+    }
     const oledperimeter::Pixel pixel =
         oledperimeter::progressPixelAt(width_, height_, index);
     display_.drawPixel(pixel.x, pixel.y, SSD1306_WHITE);
@@ -206,8 +211,13 @@ void Ssd1306DisplayBackend::showTime(const uint8_t hour,
   drawDigit(digits[2], x, y, digitWidth, digitHeight);
   x += digitWidth + kDigitGap;
   drawDigit(digits[3], x, y, digitWidth, digitHeight);
+
+  // Dither the broad glyphs in screen space, then sample the one-pixel border
+  // along its path. Applying the 2D mask to the border can reject every pixel
+  // on an edge (notably x=127 and y=63 at minimum brightness).
+  applyBrightnessDither();
   drawPerimeterProgress(minute, second);
-  present();
+  display_.display();
 }
 
 void Ssd1306DisplayBackend::showMessage(const DisplayMessage message) {

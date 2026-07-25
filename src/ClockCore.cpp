@@ -87,6 +87,29 @@ bool parseTimeSyncPayload(const uint8_t* data, const size_t length,
          isValidEpoch(epoch) && isValidUtcOffset(utcOffsetMinutes);
 }
 
+UserDisplayState selectUserDisplayState(
+    const bool recoveryButtonHeld, const bool portalActive,
+    const bool wifiBusy, const bool hasValidTime,
+    const bool pairingAvailable, const bool backgroundRefreshActive) {
+  if (recoveryButtonHeld) {
+    return UserDisplayState::kRecovery;
+  }
+  if (hasValidTime && backgroundRefreshActive) {
+    return UserDisplayState::kClock;
+  }
+  if (portalActive) {
+    return UserDisplayState::kPortal;
+  }
+  if (wifiBusy) {
+    return UserDisplayState::kWifi;
+  }
+  if (pairingAvailable) {
+    return UserDisplayState::kPairing;
+  }
+  return hasValidTime ? UserDisplayState::kClock
+                      : UserDisplayState::kNoTime;
+}
+
 DisplayFrame makeDisplayFrame(const uint32_t nowMs,
                               const bool hasValidTime,
                               const bool timezoneFresh,

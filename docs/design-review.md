@@ -324,7 +324,10 @@ advertising for bonded reconnects. At periodic refresh, allow the connected BLE
 owner to exhaust its bounded notification retries before starting Wi-Fi. Rank a
 bounded set of open BSSIDs from one scan and attempt that set without repeating
 the scan after each failure. The visible state vocabulary, boot portal timing,
-source priority, and per-boot BSSID exclusion remain unchanged.
+source priority, and per-boot BSSID exclusion remain unchanged. Later periodic
+refreshes are deliberately silent while valid time is available: BLE grace,
+Wi-Fi scan/NTP fallback, and timeout states never replace the clock display,
+and a missing phone simply leads to another scheduled refresh.
 
 The four-digit display needs an unambiguous but quiet state vocabulary documented
 in the README, for example:
@@ -412,8 +415,8 @@ No item below should be replaced by “works on my phone.”
       visible flicker.
 - [ ] Cover/uncover the sensor, shine the display toward it, disconnect it, and
       inject bad readings; feedback and failure do not cause bright flashes.
-- [ ] Boot, pairing, error, and resync indications all respect the current
-      brightness ceiling.
+- [ ] Boot, pairing, and error indications all respect the current brightness
+      ceiling; periodic resync with valid time shows only the normal clock.
 
 ### Electrical, thermal, and mechanical
 

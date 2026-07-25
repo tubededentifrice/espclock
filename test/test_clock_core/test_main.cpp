@@ -167,6 +167,50 @@ void test_oled_perimeter_progress_starts_at_top_center() {
   TEST_ASSERT_EQUAL_UINT16(0, pixel.y);
 }
 
+void test_oled_perimeter_dither_keeps_every_edge_visible() {
+  uint16_t edgeCounts[4] = {};
+  uint16_t visibleCount = 0;
+  const uint16_t totalPixels = oledperimeter::pixelCount(128, 64);
+  for (uint16_t index = 0; index < totalPixels; ++index) {
+    if (!oledperimeter::isPixelVisible(index, 2)) {
+      continue;
+    }
+    ++visibleCount;
+    const oledperimeter::Pixel pixel =
+        oledperimeter::progressPixelAt(128, 64, index);
+    if (pixel.y == 0) {
+      ++edgeCounts[0];
+    }
+    if (pixel.x == 127) {
+      ++edgeCounts[1];
+    }
+    if (pixel.y == 63) {
+      ++edgeCounts[2];
+    }
+    if (pixel.x == 0) {
+      ++edgeCounts[3];
+    }
+  }
+
+  TEST_ASSERT_EQUAL_UINT16(48, visibleCount);
+  for (uint8_t edge = 0; edge < 4; ++edge) {
+    TEST_ASSERT_GREATER_THAN_UINT16(0, edgeCounts[edge]);
+  }
+}
+
+void test_oled_perimeter_dither_is_monotonic_and_full_at_level_seven() {
+  for (uint16_t index = 0; index < 380; ++index) {
+    for (uint8_t coverage = 1; coverage < 16; ++coverage) {
+      if (oledperimeter::isPixelVisible(index, coverage)) {
+        TEST_ASSERT_TRUE(
+            oledperimeter::isPixelVisible(index, coverage + 1));
+      }
+    }
+    TEST_ASSERT_TRUE(oledperimeter::isPixelVisible(index, 16));
+    TEST_ASSERT_FALSE(oledperimeter::isPixelVisible(index, 0));
+  }
+}
+
 void test_oled_perimeter_fills_in_sixty_steps() {
   TEST_ASSERT_EQUAL_UINT16(
       0, oledperimeter::filledPixelCount(128, 64, 0));
@@ -219,6 +263,55 @@ void test_display_frame_alternates_status_and_valid_time() {
   TEST_ASSERT_EQUAL_UINT8(
       static_cast<uint8_t>(clockcore::DisplayContent::kPairing),
       static_cast<uint8_t>(frame.content));
+}
+
+void test_background_refresh_never_interrupts_valid_clock() {
+  UserDisplayState state = clockcore::selectUserDisplayState(
+      false, true, false, true, true, true);
+  TEST_ASSERT_EQUAL_UINT8(static_cast<uint8_t>(UserDisplayState::kClock),
+                          static_cast<uint8_t>(state));
+
+  state = clockcore::selectUserDisplayState(
+      false, false, true, true, true, true);
+  TEST_ASSERT_EQUAL_UINT8(static_cast<uint8_t>(UserDisplayState::kClock),
+                          static_cast<uint8_t>(state));
+
+  state = clockcore::selectUserDisplayState(
+      false, false, false, true, true, true);
+  TEST_ASSERT_EQUAL_UINT8(static_cast<uint8_t>(UserDisplayState::kClock),
+                          static_cast<uint8_t>(state));
+
+  state = clockcore::selectUserDisplayState(
+      false, false, true, false, false, true);
+  TEST_ASSERT_EQUAL_UINT8(static_cast<uint8_t>(UserDisplayState::kWifi),
+                          static_cast<uint8_t>(state));
+
+  state = clockcore::selectUserDisplayState(
+      true, false, true, true, true, true);
+  TEST_ASSERT_EQUAL_UINT8(static_cast<uint8_t>(UserDisplayState::kRecovery),
+                          static_cast<uint8_t>(state));
+}
+
+void test_boot_setup_statuses_remain_visible() {
+  UserDisplayState state = clockcore::selectUserDisplayState(
+      false, true, false, true, false, false);
+  TEST_ASSERT_EQUAL_UINT8(static_cast<uint8_t>(UserDisplayState::kPortal),
+                          static_cast<uint8_t>(state));
+
+  state = clockcore::selectUserDisplayState(
+      false, false, true, true, false, false);
+  TEST_ASSERT_EQUAL_UINT8(static_cast<uint8_t>(UserDisplayState::kWifi),
+                          static_cast<uint8_t>(state));
+
+  state = clockcore::selectUserDisplayState(
+      false, false, false, true, true, false);
+  TEST_ASSERT_EQUAL_UINT8(static_cast<uint8_t>(UserDisplayState::kPairing),
+                          static_cast<uint8_t>(state));
+
+  state = clockcore::selectUserDisplayState(
+      false, false, false, false, false, false);
+  TEST_ASSERT_EQUAL_UINT8(static_cast<uint8_t>(UserDisplayState::kNoTime),
+                          static_cast<uint8_t>(state));
 }
 
 void test_display_frame_colon_signals_sync_quality() {
@@ -317,9 +410,13 @@ int main(int, char**) {
   RUN_TEST(test_oled_brightness_steps_are_monotonic_and_bounded);
   RUN_TEST(test_oled_perimeter_uses_each_extreme_pixel_once);
   RUN_TEST(test_oled_perimeter_progress_starts_at_top_center);
+  RUN_TEST(test_oled_perimeter_dither_keeps_every_edge_visible);
+  RUN_TEST(test_oled_perimeter_dither_is_monotonic_and_full_at_level_seven);
   RUN_TEST(test_oled_perimeter_fills_in_sixty_steps);
   RUN_TEST(test_oled_perimeter_alternates_fill_and_drain_minutes);
   RUN_TEST(test_display_frame_alternates_status_and_valid_time);
+  RUN_TEST(test_background_refresh_never_interrupts_valid_clock);
+  RUN_TEST(test_boot_setup_statuses_remain_visible);
   RUN_TEST(test_display_frame_colon_signals_sync_quality);
   RUN_TEST(test_bssid_backoff_is_per_radio_not_ssid);
   RUN_TEST(test_bssid_backoff_has_a_hard_capacity);

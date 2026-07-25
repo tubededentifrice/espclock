@@ -4,6 +4,7 @@
 
 #include "AppConfig.h"
 #include "BleTimeService.h"
+#include "ClockCore.h"
 #include "DisplayController.h"
 #include "NetworkTimeService.h"
 #include "TimeKeeper.h"
@@ -85,25 +86,11 @@ void handleRecoveryButton() {
 }
 
 UserDisplayState displayState() {
-  if (recoveryButtonHeld) {
-    return UserDisplayState::kRecovery;
-  }
-  if (networkTime.portalActive()) {
-    return UserDisplayState::kPortal;
-  }
-  if (networkTime.wifiBusy()) {
-    return UserDisplayState::kWifi;
-  }
-  if (!clockTime.hasValidTime()) {
-    if (bleTime.advertising() && bleTime.pairingOpen()) {
-      return UserDisplayState::kPairing;
-    }
-    return UserDisplayState::kNoTime;
-  }
-  if (bleTime.pairingOpen() && bleTime.advertising()) {
-    return UserDisplayState::kPairing;
-  }
-  return UserDisplayState::kClock;
+  return clockcore::selectUserDisplayState(
+      recoveryButtonHeld, networkTime.portalActive(), networkTime.wifiBusy(),
+      clockTime.hasValidTime(),
+      bleTime.advertising() && bleTime.pairingOpen(),
+      networkTime.backgroundRefreshActive());
 }
 }  // namespace
 

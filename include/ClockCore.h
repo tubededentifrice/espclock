@@ -35,6 +35,12 @@ struct DisplayFrame {
   bool colonOn;
 };
 
+UserDisplayState selectUserDisplayState(bool recoveryButtonHeld,
+                                        bool portalActive, bool wifiBusy,
+                                        bool hasValidTime,
+                                        bool pairingAvailable,
+                                        bool backgroundRefreshActive);
+
 DisplayFrame makeDisplayFrame(uint32_t nowMs, bool hasValidTime,
                               bool timezoneFresh, UserDisplayState state,
                               uint32_t pairingDisplayMs);

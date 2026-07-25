@@ -167,6 +167,7 @@ void NetworkTimeService::startScan() {
   const uint32_t now = millis();
   if (wifiExhaustedForBoot_) {
     mode_ = Mode::kIdle;
+    backgroundRefreshActive_ = false;
     nextAttemptMs_ = now + config::kResyncIntervalMs;
     return;
   }
@@ -314,6 +315,7 @@ void NetworkTimeService::scheduleNextAttempt() {
   }
   mode_ = Mode::kIdle;
   bleResyncGraceActive_ = false;
+  backgroundRefreshActive_ = false;
   nextAttemptMs_ = millis() + config::kResyncIntervalMs;
 }
 
@@ -388,6 +390,7 @@ void NetworkTimeService::tick(const bool bleConnected) {
         bleResyncGraceActive_ = false;
         startScan();
       } else if (deadlineReached(now, nextAttemptMs_)) {
+        backgroundRefreshActive_ = true;
         if (bleConnected && !bleResyncGraceActive_) {
           bleResyncGraceActive_ = true;
           nextAttemptMs_ = now + config::kBleResyncGraceMs;
