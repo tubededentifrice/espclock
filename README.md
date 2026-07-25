@@ -246,7 +246,7 @@ ask that connected app for fresh time about every six hours. See the
 
 - The clock displays it immediately.
 - `PAIR` appears briefly during the two-minute BLE-first/onboarding opportunity.
-- BLE advertising remains available for already bonded clients even after the normal time display returns. New, unbonded phones are accepted for two minutes after boot so Apple's accessory picker has time to complete.
+- BLE advertising remains available for already bonded clients even after the normal time display returns. It uses the proven 30–60 ms discovery cadence during the two-minute onboarding window, then an 800–1000 ms low-duty cadence for later reconnects. New, unbonded phones are accepted for two minutes after boot so Apple's accessory picker has time to complete.
 - If BLE has not already synchronized, the two-minute `KidsClock-xxxx` portal is offered after two minutes so another phone can update the timezone without an app. Valid time remains visible most of the time.
 - If no phone supplies a fresh time, the clock then tries last-resort open Wi-Fi/NTP.
 
@@ -309,7 +309,10 @@ primary advertisement contains general-discoverable/BR-EDR-unsupported flags,
 the complete 128-bit service UUID, and preferred connection intervals. Its
 16-byte scan response contains the complete `KidsClock-xxxx` local name. Both
 remain below the 31-byte limit. Connectability is part of the advertising PDU;
-bondability is an SMP security policy, not an advertising-data flag.
+bondability is an SMP security policy, not an advertising-data flag. The
+advertising interval is 30–60 ms while new-phone onboarding is open and
+800–1000 ms afterward; changing cadence does not remove the name, service UUID,
+connectability, or bonded-client reconnect path.
 
 | Item | UUID |
 |---|---|
@@ -344,7 +347,8 @@ BLE uses encrypted **Just Works** bonding because the clock has no input device.
 This is deliberately bounded and contains no credentials:
 
 - only scan results explicitly marked open are considered;
-- candidates are ordered by signal strength;
+- up to six candidates from one scan are retained in signal-strength order,
+  avoiding another full radio scan after each failed association;
 - a failed **BSSID** is remembered for this boot and never retried;
 - if the fixed 24-entry failure table fills, open-Wi-Fi fallback is disabled for the rest of that boot;
 - association and NTP have fixed timeouts;
@@ -362,18 +366,19 @@ Open networks are untrusted and often unusable without a browser. The feature is
 
 ## Automatic brightness
 
-The BH1750 is sampled every second. An exponential filter gives roughly a
-several-second response and 20% hysteresis prevents flicker near level
-boundaries. The normalized eight levels map directly to TM1637 brightness and
-to a visibly separated SSD1306 contrast curve. Because some small OLED modules
-show little perceived change across their contrast range, the SSD1306 backend
-also uses flicker-free spatial dithering from 12.5% pixel coverage at level 0
-to 100% at level 7. A fully covered sensor reading around 0.83 lux settles to
-level 0; the sensor-missing fallback level 2 retains 37.5% coverage. Firmware
-first tries the configured BH1750 address and then the other valid address
-(`0x23`/`0x5C`). If the BH1750 is absent or stops producing valid, ready
-samples, the display remains usable at fallback level 2 and the sensor is
-retried every 30 seconds.
+The BH1750 is triggered in high-resolution one-shot mode and sampled every
+second, returning to its power-down state between measurements. An exponential
+filter gives roughly a several-second response and 20% hysteresis prevents
+flicker near level boundaries. The normalized eight levels map directly to
+TM1637 brightness and to a visibly separated SSD1306 contrast curve. Because
+some small OLED modules show little perceived change across their contrast
+range, the SSD1306 backend also uses flicker-free spatial dithering from 12.5%
+pixel coverage at level 0 to 100% at level 7. A fully covered sensor reading
+around 0.83 lux settles to level 0; the sensor-missing fallback level 2 retains
+37.5% coverage. Firmware first tries the configured BH1750 address and then the
+other valid address (`0x23`/`0x5C`). If the BH1750 is absent, cannot start its
+next one-shot measurement, or stops producing valid, ready samples, the display
+remains usable at fallback level 2 and the sensor is retried every 30 seconds.
 
 For bench diagnosis, temporarily build the affected profile with
 `CLOCK_LIGHT_DIAGNOSTICS=1` to log each raw and filtered lux sample, selected
@@ -383,7 +388,8 @@ periodic diagnostics disabled.
 Tune the following in `include/AppConfig.h` or with PlatformIO `-D` flags:
 
 - pin assignments and BH1750 address;
-- BLE, portal, Wi-Fi, NTP, and resync timeouts;
+- main-loop delay and optional CPU frequency;
+- BLE advertising, portal, Wi-Fi, NTP, resync, and BLE-first grace timings;
 - light sample interval;
 - fallback UTC offset;
 - open Wi-Fi enable/disable.
@@ -392,6 +398,29 @@ For a red TM1637, use a smoked red acrylic window or neutral-density film if
 brightness code 0 still lights the room. Bench-tune the OLED minimum contrast
 before enclosure work. Do not use slow visible blinking as a dimming
 substitute.
+
+## Power behavior
+
+The C3 travel profiles request an 80 MHz CPU clock; the classic breadboard
+profiles retain their normal clock because they are bring-up targets. The main
+task yields for 20 ms instead of polling every 5 ms, and both display backends
+avoid retransmitting an unchanged frame. These changes do not alter the
+250 ms display policy, one-second colon cadence, portal service, recovery
+gesture, or BLE callbacks.
+
+At each later six-hour refresh, an already connected iPhone gets a 90-second
+BLE-first grace period covering the firmware's bounded notification retries.
+Open-Wi-Fi scanning starts only if that BLE path disconnects or produces no
+accepted update. A successful BLE update resets the normal six-hour schedule.
+This grace does not delay the boot onboarding window or captive portal.
+
+Automatic light sleep is not enabled by the pinned precompiled Arduino-ESP32
+framework, whose power-management component is disabled. Deep sleep is
+deliberately not substituted: it would break the persistent BLE relationship,
+continuous recovery-button handling, and normal radio callbacks. Whole-device
+consumption still depends heavily on the exact display module, brightness,
+board regulator, and indicator LEDs, so measure the assembled travel build
+rather than extrapolating from the bare ESP32-C3.
 
 ## Firmware layout
 
@@ -423,7 +452,7 @@ Do not close or pot the case until every applicable physical item passes.
 
 ### Automated
 
-- [x] `uv run pio test -e native` passes (14/14).
+- [x] `uv run pio test -e native` passes (16/16).
 - [x] `uv run pio run -e esp32-devkit-oled-128x64` completes.
 - [x] All six display/board profiles compile in the final verification matrix.
 - [x] No firmware compiler warnings are reported.
@@ -440,6 +469,10 @@ Do not close or pot the case until every applicable physical item passes.
 - [ ] Minimum brightness remains readable but does not illuminate a dark bedroom.
 - [ ] BH1750 responds smoothly over dark, bedroom, room, and daylight conditions.
 - [ ] Display light does not materially feed back into the BH1750.
+- [ ] Whole-device current and peak current are recorded for BLE advertising,
+  BLE connected, portal, Wi-Fi/NTP, and display brightness levels 0/2/7.
+- [ ] The C3 remains stable at its configured 80 MHz through a 24-hour soak,
+  repeated portal use, BLE reconnects, and Wi-Fi/NTP attempts.
 - [ ] Selected board regulator and wiring remain comfortably below unsafe temperature.
 
 ### RTC and safety
@@ -462,6 +495,9 @@ Do not close or pot the case until every applicable physical item passes.
 - [ ] AccessorySetupKit onboarding works on physical iOS 18 and current iOS.
 - [ ] An independent BLE scanner shows the complete name/service UUID and a
   connectable advertisement throughout the two-minute `PAIR` window.
+- [ ] A scanner confirms the 30–60 ms onboarding cadence changes to
+  800–1000 ms after the window, and a bonded iPhone still reconnects from the
+  background at five metres.
 - [ ] Locked/background iPhone answers a six-hour `sync-request`.
 - [ ] Core Bluetooth restores after system termination, without user force-quit.
 - [ ] Two iPhones can hand off using the automatic-sync toggle.
@@ -469,6 +505,8 @@ Do not close or pot the case until every applicable physical item passes.
 - [ ] A plausible RTC that is hours wrong can be recovered with the five-second BOOT gesture and corrected without a computer.
 - [ ] UTC−12, UTC+14, `+05:30`, and `+05:45` display correctly.
 - [ ] Open Wi-Fi association failure does not retry that BSSID before reboot.
+- [ ] One fallback window performs one Wi-Fi scan and attempts its retained
+  open candidates without rescanning between failures.
 - [ ] Captive/no-Internet open networks time out and return to the clock.
 - [ ] With all radios unavailable, valid RTC time remains displayed.
 - [ ] Six-hour resync scheduling does not interrupt display service.

@@ -33,6 +33,7 @@ class BleTimeService {
   void onTimeWrite(NimBLECharacteristic* characteristic);
   void onStatusSubscribe(uint16_t subscriptionValue);
   void updateTimeValue(const TimeKeeper& clock, bool notify);
+  bool transitionToSlowAdvertising();
 
   NimBLEServer* server_ = nullptr;
   NimBLECharacteristic* timeCharacteristic_ = nullptr;
@@ -51,6 +52,7 @@ class BleTimeService {
   uint16_t suppressedPolicyRejections_ = 0;
   uint8_t advertisingRecoveryAttempts_ = 0;
   bool pairingWindowStatusLogged_ = false;
+  std::atomic_bool slowAdvertisingConfigured_{false};
   bool policyRejectionLogged_ = false;
   bool policyDisconnectPending_ = false;
   std::atomic_bool timeWritePending_{false};

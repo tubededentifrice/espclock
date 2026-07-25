@@ -24,6 +24,10 @@ constexpr uint32_t kTimeCharacteristicProperties =
     NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::WRITE |
     NIMBLE_PROPERTY::WRITE_ENC | NIMBLE_PROPERTY::NOTIFY;
 
+constexpr uint16_t advertisingIntervalUnits(const uint32_t milliseconds) {
+  return static_cast<uint16_t>((milliseconds * 1000UL) / 625UL);
+}
+
 struct BoundedGapLog {
   uint32_t lastLogMs = 0;
   uint16_t suppressed = 0;
@@ -167,15 +171,21 @@ void BleTimeService::begin(const TimeUpdateHandler handler,
   advertising->setAdvertisementData(advertisementData);
   advertising->setScanResponseData(scanResponseData);
   advertising->setScanResponse(true);
+  advertising->setMinInterval(
+      advertisingIntervalUnits(config::kBleFastAdvertisingMinMs));
+  advertising->setMaxInterval(
+      advertisingIntervalUnits(config::kBleFastAdvertisingMaxMs));
   const bool advertisingStarted = advertising->start();
   Serial.printf(
       "[BLE] advertising start=%s name=%s service=%s adv_bytes=%u "
       "scan_response_bytes=%u connectable=yes bondable=yes "
-      "pairing_window_ms=%lu\n",
+      "pairing_window_ms=%lu interval_ms=%lu-%lu\n",
       advertisingStarted ? "ok" : "failed", deviceName, kServiceUuid,
       static_cast<unsigned>(advertisementBytes),
       static_cast<unsigned>(scanResponseBytes),
-      static_cast<unsigned long>(config::kNewBlePairingWindowMs));
+      static_cast<unsigned long>(config::kNewBlePairingWindowMs),
+      static_cast<unsigned long>(config::kBleFastAdvertisingMinMs),
+      static_cast<unsigned long>(config::kBleFastAdvertisingMaxMs));
 }
 
 bool BleTimeService::advertising() const {
@@ -280,6 +290,12 @@ void BleTimeService::onDisconnect(ble_gap_conn_desc* description) {
   connectionHandle_.store(UINT16_MAX);
   activeConnectionBonded_.store(false);
   syncRequestPending_.store(false);
+  if (!pairingOpen() && !slowAdvertisingConfigured_.load()) {
+    // The main task owns advertising-parameter changes. It will transition and
+    // restart within one main-loop interval, avoiding concurrent mutation of
+    // NimBLE advertising state from this callback.
+    return;
+  }
   const bool restarted = NimBLEDevice::startAdvertising();
   if (restarted) {
     advertisingRecoveryAttempts_ = 0;
@@ -395,10 +411,34 @@ void BleTimeService::requestSync() {
   }
 }
 
+bool BleTimeService::transitionToSlowAdvertising() {
+  if (slowAdvertisingConfigured_.load()) {
+    return true;
+  }
+  NimBLEAdvertising* advertising = NimBLEDevice::getAdvertising();
+  if (advertising->isAdvertising() && !advertising->stop()) {
+    return false;
+  }
+  advertising->setMinInterval(
+      advertisingIntervalUnits(config::kBleSlowAdvertisingMinMs));
+  advertising->setMaxInterval(
+      advertisingIntervalUnits(config::kBleSlowAdvertisingMaxMs));
+  slowAdvertisingConfigured_.store(true);
+  const bool shouldAdvertise = !connected();
+  const bool restarted = !shouldAdvertise || advertising->start();
+  Serial.printf(
+      "[BLE] advertising duty=slow interval_ms=%lu-%lu restart=%s\n",
+      static_cast<unsigned long>(config::kBleSlowAdvertisingMinMs),
+      static_cast<unsigned long>(config::kBleSlowAdvertisingMaxMs),
+      restarted ? "ok" : "failed");
+  return true;
+}
+
 void BleTimeService::tick(const TimeKeeper& clock) {
   const uint32_t now = millis();
   if (!pairingWindowStatusLogged_ &&
-      now - bootStartedMs_ >= config::kNewBlePairingWindowMs) {
+      now - bootStartedMs_ >= config::kNewBlePairingWindowMs &&
+      transitionToSlowAdvertising()) {
     pairingWindowStatusLogged_ = true;
     Serial.printf("[BLE] pairing window closed advertising=%s connected=%s\n",
                   advertising() ? "active" : "inactive",

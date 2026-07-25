@@ -21,26 +21,18 @@ class NetworkTimeService {
   NetworkTimeService();
   void begin(TimeUpdateHandler handler, int16_t utcOffsetMinutes,
              bool hasConfirmedSync);
-  void tick();
+  void tick(bool bleConnected);
   void onExternalTimeSync(int16_t utcOffsetMinutes);
   Mode mode() const { return mode_; }
   bool portalActive() const { return mode_ == Mode::kPortal; }
   bool wifiBusy() const;
 
  private:
-  struct Candidate {
-    String ssid;
-    uint8_t bssid[6] = {};
-    int32_t channel = 0;
-    int32_t rssi = -127;
-  };
-
   void startPortal();
   void stopPortal();
   void startScan();
   void processScan(int count);
-  bool selectNextCandidate();
-  void connectCandidate();
+  void connectNextCandidate();
   void startNtp();
   void finishNtp(bool success);
   void scheduleNextAttempt();
@@ -54,7 +46,7 @@ class NetworkTimeService {
   WebServer web_;
   TimeUpdateHandler handler_ = nullptr;
   Mode mode_ = Mode::kWaitingForBle;
-  Candidate candidate_;
+  clockcore::WifiCandidateRanker candidateRanker_;
   clockcore::BssidAttemptTracker failedBssids_;
   uint32_t modeStartedMs_ = 0;
   uint32_t nextAttemptMs_ = 0;
@@ -64,13 +56,15 @@ class NetworkTimeService {
   int64_t ntpBaselineEpoch_ = 0;
   int16_t utcOffsetMinutes_ = 0;
   uint8_t wifiAttemptsThisWindow_ = 0;
+  uint8_t nextCandidateIndex_ = 0;
+  uint8_t activeCandidateIndex_ = UINT8_MAX;
   uint8_t portalStartAttempts_ = 0;
   bool portalWasOffered_ = false;
   bool portalAccepted_ = false;
-  bool candidateReady_ = false;
   bool wifiExhaustedForBoot_ = false;
   bool stationMacRandomized_ = false;
   bool hasConfirmedSync_ = false;
+  bool bleResyncGraceActive_ = false;
 
   static NetworkTimeService* instance_;
   static volatile bool ntpSynced_;

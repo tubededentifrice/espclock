@@ -1,3 +1,5 @@
+#include <stdio.h>
+
 #include <unity.h>
 
 #include "ClockCore.h"
@@ -192,6 +194,43 @@ void test_bssid_backoff_has_a_hard_capacity() {
                           tracker.size());
 }
 
+void test_wifi_candidates_are_bounded_and_ranked_without_duplicates() {
+  clockcore::WifiCandidateRanker ranker;
+  for (uint8_t i = 0; i < 8; ++i) {
+    const uint8_t bssid[6] = {0x30, 0x41, 0x52, 0x63, 0x74, i};
+    char ssid[12] = {};
+    snprintf(ssid, sizeof(ssid), "Open-%u", i);
+    ranker.consider(ssid, bssid, 1 + (i % 11), -90 + i * 5);
+  }
+  TEST_ASSERT_EQUAL_UINT8(clockcore::WifiCandidateRanker::kCapacity,
+                          ranker.size());
+  TEST_ASSERT_EQUAL_STRING("Open-7", ranker.at(0)->ssid);
+  TEST_ASSERT_EQUAL_INT32(-55, ranker.at(0)->rssi);
+  TEST_ASSERT_EQUAL_STRING("Open-2", ranker.at(5)->ssid);
+  TEST_ASSERT_EQUAL_INT32(-80, ranker.at(5)->rssi);
+
+  const uint8_t duplicate[6] = {0x30, 0x41, 0x52, 0x63, 0x74, 7};
+  TEST_ASSERT_FALSE(ranker.consider("Weaker duplicate", duplicate, 6, -70));
+  TEST_ASSERT_TRUE(ranker.consider("Stronger duplicate", duplicate, 6, -40));
+  TEST_ASSERT_EQUAL_UINT8(clockcore::WifiCandidateRanker::kCapacity,
+                          ranker.size());
+  TEST_ASSERT_EQUAL_STRING("Stronger duplicate", ranker.at(0)->ssid);
+  TEST_ASSERT_EQUAL_INT32(-40, ranker.at(0)->rssi);
+}
+
+void test_wifi_candidate_rejects_invalid_metadata() {
+  clockcore::WifiCandidateRanker ranker;
+  const uint8_t bssid[6] = {0x40, 0x51, 0x62, 0x73, 0x84, 0x95};
+  const char tooLong[] = "123456789012345678901234567890123";
+  TEST_ASSERT_FALSE(ranker.consider("", bssid, 1, -50));
+  TEST_ASSERT_FALSE(ranker.consider(tooLong, bssid, 1, -50));
+  TEST_ASSERT_FALSE(ranker.consider("Open", nullptr, 1, -50));
+  TEST_ASSERT_FALSE(ranker.consider("Open", bssid, 0, -50));
+  TEST_ASSERT_FALSE(ranker.consider("Open", bssid, 15, -50));
+  TEST_ASSERT_EQUAL_UINT8(0, ranker.size());
+  TEST_ASSERT_NULL(ranker.at(0));
+}
+
 int main(int, char**) {
   UNITY_BEGIN();
   RUN_TEST(test_epoch_validation);
@@ -208,5 +247,7 @@ int main(int, char**) {
   RUN_TEST(test_display_frame_colon_signals_sync_quality);
   RUN_TEST(test_bssid_backoff_is_per_radio_not_ssid);
   RUN_TEST(test_bssid_backoff_has_a_hard_capacity);
+  RUN_TEST(test_wifi_candidates_are_bounded_and_ranked_without_duplicates);
+  RUN_TEST(test_wifi_candidate_rejects_invalid_metadata);
   return UNITY_END();
 }

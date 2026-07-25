@@ -54,11 +54,25 @@ void Tm1637DisplayBackend::setBrightness(const uint8_t level) {
 void Tm1637DisplayBackend::showTime(const uint8_t hour,
                                     const uint8_t minute,
                                     const bool colonOn) {
+  const uint32_t frameKey = 0x10000000UL |
+                            (static_cast<uint32_t>(hour) << 16U) |
+                            (static_cast<uint32_t>(minute) << 8U) |
+                            static_cast<uint32_t>(colonOn);
+  if (frameKey == lastFrameKey_) {
+    return;
+  }
+  lastFrameKey_ = frameKey;
   const uint16_t hhmm = static_cast<uint16_t>(hour * 100U + minute);
   display_.showNumberDecEx(hhmm, colonOn ? 0x40 : 0x00, true, 4, 0);
 }
 
 void Tm1637DisplayBackend::showMessage(const DisplayMessage message) {
+  const uint32_t frameKey =
+      0x20000000UL | static_cast<uint8_t>(message);
+  if (frameKey == lastFrameKey_) {
+    return;
+  }
+  lastFrameKey_ = frameKey;
   switch (message) {
     case DisplayMessage::kPairing:
       display_.setSegments(kPair);

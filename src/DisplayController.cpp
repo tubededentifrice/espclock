@@ -25,7 +25,7 @@ void DisplayController::tryLightSensor() {
   const uint8_t addresses[2] = {config::kBh1750Address, alternateAddress};
   lightSensorAvailable_ = false;
   for (const uint8_t address : addresses) {
-    if (lightSensor_.begin(BH1750::CONTINUOUS_HIGH_RES_MODE, address)) {
+    if (lightSensor_.begin(BH1750::ONE_TIME_HIGH_RES_MODE, address)) {
       lightSensorAvailable_ = true;
       lightSensorAddress_ = address;
       Serial.printf("BH1750 detected at I2C address 0x%02X\n", address);
@@ -81,6 +81,18 @@ void DisplayController::sampleLight() {
   }
   unreadyLightReadings_ = 0;
   const float lux = lightSensor_.readLightLevel();
+  const bool nextMeasurementArmed =
+      lightSensor_.configure(BH1750::ONE_TIME_HIGH_RES_MODE);
+  if (!nextMeasurementArmed) {
+    lightSensorAvailable_ = false;
+    lightLevel_.reset();
+    if (displayAvailable_) {
+      display_.setBrightness(config::kFallbackBrightness);
+    }
+    Serial.printf("BH1750 at 0x%02X could not start next measurement\n",
+                  lightSensorAddress_);
+    return;
+  }
   if (!(lux >= 0.0F) || lux > 100000.0F) {
 #if CLOCK_LIGHT_DIAGNOSTICS
     Serial.printf("LIGHT sample=invalid raw_lux=%.2f consecutive=%u\n",

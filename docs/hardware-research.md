@@ -157,7 +157,10 @@ level, not measure scientific sub-lux differences.
 Put the sensor behind its own clear or lightly frosted aperture on the front or
 top of the enclosure. Shield it from direct light leaking from the seven-segment
 display, otherwise the brightness loop can oscillate. Use a 5–10 second filtered
-average plus hysteresis, and map lux logarithmically to the eight display levels.
+average plus hysteresis, and map lux logarithmically to the eight display
+levels. One-shot high-resolution measurements provide the same one-second
+brightness input while allowing the sensor to return to power-down between
+conversions.
 
 ## RTC and backup power
 
@@ -254,8 +257,11 @@ explicit, non-truncated split: flags, complete 128-bit service UUID, and
 preferred connection intervals consume 27 primary-advertisement bytes; the
 complete 14-character `KidsClock-xxxx` name consumes 16 scan-response bytes.
 Bondability is negotiated after connection and is not represented by a generic
-advertising-data “pairable” flag. A physical BLE scanner and iPhone remain the
-authority for radio and AccessorySetupKit discovery acceptance.
+advertising-data “pairable” flag. The two-minute new-phone window retains the
+30–60 ms discovery cadence already proven with AccessorySetupKit; afterward the
+same connectable payload uses an 800–1000 ms cadence for lower-duty bonded
+reconnects. A physical BLE scanner and iPhone remain the authority for radio,
+timing, background reconnect, and AccessorySetupKit discovery acceptance.
 
 ### Practical no-app fallback
 

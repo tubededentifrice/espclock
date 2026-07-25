@@ -180,4 +180,63 @@ bool BssidAttemptTracker::add(const uint8_t bssid[6]) {
   return true;
 }
 
+bool WifiCandidateRanker::consider(const char* ssid,
+                                   const uint8_t bssid[6],
+                                   const int32_t channel,
+                                   const int32_t rssi) {
+  if (ssid == nullptr || bssid == nullptr || ssid[0] == '\0' ||
+      channel < 1 || channel > 14) {
+    return false;
+  }
+  size_t ssidLength = 0;
+  while (ssidLength <= WifiCandidate::kMaximumSsidLength &&
+         ssid[ssidLength] != '\0') {
+    ++ssidLength;
+  }
+  if (ssidLength == 0 ||
+      ssidLength > WifiCandidate::kMaximumSsidLength) {
+    return false;
+  }
+
+  for (uint8_t i = 0; i < size_; ++i) {
+    if (memcmp(candidates_[i].bssid, bssid, 6) == 0) {
+      if (rssi <= candidates_[i].rssi) {
+        return false;
+      }
+      for (uint8_t j = i; j + 1U < size_; ++j) {
+        candidates_[j] = candidates_[j + 1U];
+      }
+      --size_;
+      break;
+    }
+  }
+
+  uint8_t insertionIndex = 0;
+  while (insertionIndex < size_ &&
+         candidates_[insertionIndex].rssi >= rssi) {
+    ++insertionIndex;
+  }
+  if (insertionIndex >= kCapacity) {
+    return false;
+  }
+
+  const uint8_t newSize = size_ < kCapacity ? size_ + 1U : size_;
+  for (uint8_t i = newSize - 1U; i > insertionIndex; --i) {
+    candidates_[i] = candidates_[i - 1U];
+  }
+  WifiCandidate candidate = {};
+  memcpy(candidate.ssid, ssid, ssidLength);
+  candidate.ssid[ssidLength] = '\0';
+  memcpy(candidate.bssid, bssid, sizeof(candidate.bssid));
+  candidate.channel = channel;
+  candidate.rssi = rssi;
+  candidates_[insertionIndex] = candidate;
+  size_ = newSize;
+  return true;
+}
+
+const WifiCandidate* WifiCandidateRanker::at(const uint8_t index) const {
+  return index < size_ ? &candidates_[index] : nullptr;
+}
+
 }  // namespace clockcore

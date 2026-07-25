@@ -16,4 +16,5 @@ class Tm1637DisplayBackend final : public DisplayBackend {
  private:
   TM1637Display display_;
   uint8_t brightness_ = 0xFF;
+  uint32_t lastFrameKey_ = 0xFFFFFFFFUL;
 };

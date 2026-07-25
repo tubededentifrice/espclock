@@ -1,6 +1,7 @@
 #include "NetworkTimeService.h"
 
 #include <Arduino.h>
+#include <cstring>
 #include <esp_system.h>
 #include <esp_sntp.h>
 #include <esp_wifi.h>
@@ -18,6 +19,9 @@ constexpr uint8_t kMaximumPortalStartAttempts = 3;
 constexpr uint32_t kPortalStartRetryMs = 2000UL;
 constexpr char kNtpServer1[] = "time.cloudflare.com";
 constexpr char kNtpServer2[] = "pool.ntp.org";
+static_assert(config::kMaximumWifiAttemptsPerWindow ==
+                  clockcore::WifiCandidateRanker::kCapacity,
+              "Wi-Fi candidate capacity must match the per-window attempt cap");
 constexpr char kPortalHtml[] PROGMEM = R"HTML(
 <!doctype html><html><head><meta name="viewport" content="width=device-width">
 <title>Kids Clock</title><style>
@@ -170,15 +174,13 @@ void NetworkTimeService::startScan() {
       mode_ == Mode::kPortal) {
     wifiWindowStartedMs_ = now;
     wifiAttemptsThisWindow_ = 0;
-  } else if (wifiAttemptsThisWindow_ >=
-                 config::kMaximumWifiAttemptsPerWindow ||
-             now - wifiWindowStartedMs_ >= config::kWifiWindowMs) {
-    scheduleNextAttempt();
-    return;
   }
   if (mode_ == Mode::kPortal) {
     stopPortal();
   }
+  candidateRanker_.clear();
+  nextCandidateIndex_ = 0;
+  activeCandidateIndex_ = UINT8_MAX;
   WiFi.mode(WIFI_STA);
   if (!stationMacRandomized_) {
     uint8_t address[6] = {};
@@ -214,45 +216,45 @@ void NetworkTimeService::rememberFailure(const uint8_t bssid[6]) {
 }
 
 void NetworkTimeService::processScan(const int count) {
-  candidateReady_ = false;
-  candidate_.rssi = -127;
   for (int i = 0; i < count; ++i) {
     if (WiFi.encryptionType(i) != WIFI_AUTH_OPEN) {
       continue;
     }
     const String ssid = WiFi.SSID(i);
     const uint8_t* bssid = WiFi.BSSID(i);
-    if (ssid.isEmpty() || bssid == nullptr || wasFailed(bssid) ||
-        WiFi.RSSI(i) <= candidate_.rssi) {
+    if (ssid.isEmpty() ||
+        ssid.length() > clockcore::WifiCandidate::kMaximumSsidLength ||
+        std::strlen(ssid.c_str()) != ssid.length() || bssid == nullptr ||
+        wasFailed(bssid)) {
       continue;
     }
-    candidate_.ssid = ssid;
-    candidate_.channel = WiFi.channel(i);
-    candidate_.rssi = WiFi.RSSI(i);
-    memcpy(candidate_.bssid, WiFi.BSSID(i), sizeof(candidate_.bssid));
-    candidateReady_ = true;
+    candidateRanker_.consider(ssid.c_str(), bssid, WiFi.channel(i),
+                              WiFi.RSSI(i));
   }
   WiFi.scanDelete();
-  if (candidateReady_) {
-    connectCandidate();
-  } else {
+  connectNextCandidate();
+}
+
+void NetworkTimeService::connectNextCandidate() {
+  const uint32_t now = millis();
+  if (wifiExhaustedForBoot_ ||
+      wifiAttemptsThisWindow_ >= config::kMaximumWifiAttemptsPerWindow ||
+      now - wifiWindowStartedMs_ >= config::kWifiWindowMs) {
     scheduleNextAttempt();
+    return;
   }
-}
-
-bool NetworkTimeService::selectNextCandidate() {
-  // A fresh scan is used after each failure. Failed BSSIDs remain excluded for
-  // the entire boot, satisfying the backoff rule without keeping scan records.
-  startScan();
-  return true;
-}
-
-void NetworkTimeService::connectCandidate() {
+  const clockcore::WifiCandidate* candidate =
+      candidateRanker_.at(nextCandidateIndex_);
+  if (candidate == nullptr) {
+    scheduleNextAttempt();
+    return;
+  }
+  activeCandidateIndex_ = nextCandidateIndex_++;
   ++wifiAttemptsThisWindow_;
-  WiFi.begin(candidate_.ssid.c_str(), nullptr, candidate_.channel,
-             candidate_.bssid, true);
+  WiFi.begin(candidate->ssid, nullptr, candidate->channel,
+             candidate->bssid, true);
   mode_ = Mode::kConnecting;
-  modeStartedMs_ = millis();
+  modeStartedMs_ = now;
 }
 
 void NetworkTimeService::startNtp() {
@@ -270,6 +272,8 @@ void NetworkTimeService::ntpCallback(struct timeval*) {
 }
 
 void NetworkTimeService::finishNtp(const bool success) {
+  const clockcore::WifiCandidate* candidate =
+      candidateRanker_.at(activeCandidateIndex_);
   bool accepted = success;
   const int64_t candidateEpoch = static_cast<int64_t>(time(nullptr));
   const int64_t expectedEpoch =
@@ -286,14 +290,14 @@ void NetworkTimeService::finishNtp(const bool success) {
   if (accepted && handler_ != nullptr) {
     handler_({candidateEpoch, utcOffsetMinutes_,
               TimeSource::kNtp});
-  } else {
-    rememberFailure(candidate_.bssid);
+  } else if (candidate != nullptr) {
+    rememberFailure(candidate->bssid);
   }
-  WiFi.disconnect(true, false);
   if (accepted) {
     scheduleNextAttempt();
   } else {
-    selectNextCandidate();
+    WiFi.disconnect(false, false);
+    connectNextCandidate();
   }
 }
 
@@ -309,6 +313,7 @@ void NetworkTimeService::scheduleNextAttempt() {
     WiFi.disconnect(true, false);
   }
   mode_ = Mode::kIdle;
+  bleResyncGraceActive_ = false;
   nextAttemptMs_ = millis() + config::kResyncIntervalMs;
 }
 
@@ -325,7 +330,7 @@ void NetworkTimeService::onExternalTimeSync(
   }
 }
 
-void NetworkTimeService::tick() {
+void NetworkTimeService::tick(const bool bleConnected) {
   const uint32_t now = millis();
   switch (mode_) {
     case Mode::kWaitingForBle:
@@ -361,8 +366,13 @@ void NetworkTimeService::tick() {
       if (WiFi.status() == WL_CONNECTED) {
         startNtp();
       } else if (now - modeStartedMs_ >= config::kWifiConnectTimeoutMs) {
-        rememberFailure(candidate_.bssid);
-        selectNextCandidate();
+        const clockcore::WifiCandidate* candidate =
+            candidateRanker_.at(activeCandidateIndex_);
+        if (candidate != nullptr) {
+          rememberFailure(candidate->bssid);
+        }
+        WiFi.disconnect(false, false);
+        connectNextCandidate();
       }
       break;
     case Mode::kWaitingForNtp:
@@ -374,8 +384,20 @@ void NetworkTimeService::tick() {
       }
       break;
     case Mode::kIdle:
-      if (deadlineReached(now, nextAttemptMs_)) {
+      if (bleResyncGraceActive_ && !bleConnected) {
+        bleResyncGraceActive_ = false;
         startScan();
+      } else if (deadlineReached(now, nextAttemptMs_)) {
+        if (bleConnected && !bleResyncGraceActive_) {
+          bleResyncGraceActive_ = true;
+          nextAttemptMs_ = now + config::kBleResyncGraceMs;
+          Serial.printf(
+              "[WiFi] deferring fallback for connected BLE grace_ms=%lu\n",
+              static_cast<unsigned long>(config::kBleResyncGraceMs));
+        } else {
+          bleResyncGraceActive_ = false;
+          startScan();
+        }
       }
       break;
   }

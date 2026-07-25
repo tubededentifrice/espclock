@@ -67,4 +67,28 @@ class BssidAttemptTracker {
   uint8_t size_ = 0;
 };
 
+struct WifiCandidate {
+  static constexpr uint8_t kMaximumSsidLength = 32;
+
+  char ssid[kMaximumSsidLength + 1] = {};
+  uint8_t bssid[6] = {};
+  int32_t channel = 0;
+  int32_t rssi = -127;
+};
+
+class WifiCandidateRanker {
+ public:
+  static constexpr uint8_t kCapacity = 6;
+
+  void clear() { size_ = 0; }
+  bool consider(const char* ssid, const uint8_t bssid[6], int32_t channel,
+                int32_t rssi);
+  const WifiCandidate* at(uint8_t index) const;
+  uint8_t size() const { return size_; }
+
+ private:
+  WifiCandidate candidates_[kCapacity] = {};
+  uint8_t size_ = 0;
+};
+
 }  // namespace clockcore

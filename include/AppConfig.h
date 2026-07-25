@@ -50,6 +50,14 @@
 #define CLOCK_LIGHT_SENSOR_RETRY_MS 30000UL
 #endif
 
+#ifndef CLOCK_MAIN_LOOP_DELAY_MS
+#define CLOCK_MAIN_LOOP_DELAY_MS 20UL
+#endif
+
+#ifndef CLOCK_CPU_FREQUENCY_MHZ
+#define CLOCK_CPU_FREQUENCY_MHZ 0
+#endif
+
 #ifndef CLOCK_ENABLE_OPEN_WIFI_FALLBACK
 #define CLOCK_ENABLE_OPEN_WIFI_FALLBACK 1
 #endif
@@ -64,6 +72,26 @@
 
 #ifndef CLOCK_NEW_BLE_PAIRING_WINDOW_MS
 #define CLOCK_NEW_BLE_PAIRING_WINDOW_MS 120000UL
+#endif
+
+#ifndef CLOCK_BLE_FAST_ADV_MIN_MS
+#define CLOCK_BLE_FAST_ADV_MIN_MS 30UL
+#endif
+
+#ifndef CLOCK_BLE_FAST_ADV_MAX_MS
+#define CLOCK_BLE_FAST_ADV_MAX_MS 60UL
+#endif
+
+#ifndef CLOCK_BLE_SLOW_ADV_MIN_MS
+#define CLOCK_BLE_SLOW_ADV_MIN_MS 800UL
+#endif
+
+#ifndef CLOCK_BLE_SLOW_ADV_MAX_MS
+#define CLOCK_BLE_SLOW_ADV_MAX_MS 1000UL
+#endif
+
+#ifndef CLOCK_BLE_RESYNC_GRACE_MS
+#define CLOCK_BLE_RESYNC_GRACE_MS 90000UL
 #endif
 
 #ifndef CLOCK_PORTAL_WINDOW_MS
@@ -111,10 +139,21 @@ constexpr uint8_t kBh1750Address = CLOCK_BH1750_ADDRESS;
 constexpr uint8_t kOledAddress = CLOCK_OLED_ADDRESS;
 constexpr uint8_t kFallbackBrightness = CLOCK_FALLBACK_BRIGHTNESS;
 constexpr uint32_t kLightSensorRetryMs = CLOCK_LIGHT_SENSOR_RETRY_MS;
+constexpr uint32_t kMainLoopDelayMs = CLOCK_MAIN_LOOP_DELAY_MS;
+constexpr uint16_t kCpuFrequencyMhz = CLOCK_CPU_FREQUENCY_MHZ;
 constexpr int16_t kDefaultUtcOffsetMinutes = CLOCK_DEFAULT_UTC_OFFSET_MINUTES;
 constexpr uint32_t kBleWindowMs = CLOCK_BLE_WINDOW_MS;
 constexpr uint32_t kNewBlePairingWindowMs =
     CLOCK_NEW_BLE_PAIRING_WINDOW_MS;
+constexpr uint32_t kBleFastAdvertisingMinMs =
+    CLOCK_BLE_FAST_ADV_MIN_MS;
+constexpr uint32_t kBleFastAdvertisingMaxMs =
+    CLOCK_BLE_FAST_ADV_MAX_MS;
+constexpr uint32_t kBleSlowAdvertisingMinMs =
+    CLOCK_BLE_SLOW_ADV_MIN_MS;
+constexpr uint32_t kBleSlowAdvertisingMaxMs =
+    CLOCK_BLE_SLOW_ADV_MAX_MS;
+constexpr uint32_t kBleResyncGraceMs = CLOCK_BLE_RESYNC_GRACE_MS;
 constexpr uint32_t kPortalWindowMs = CLOCK_PORTAL_WINDOW_MS;
 constexpr uint32_t kWifiConnectTimeoutMs = CLOCK_WIFI_CONNECT_TIMEOUT_MS;
 constexpr uint32_t kNtpTimeoutMs = CLOCK_NTP_TIMEOUT_MS;
@@ -145,13 +184,30 @@ static_assert(CLOCK_OLED_ADDRESS > 0 && CLOCK_OLED_ADDRESS <= 0x7F,
 
 static_assert(kFallbackBrightness <= 7,
               "CLOCK_FALLBACK_BRIGHTNESS must be between 0 and 7");
+static_assert(kMainLoopDelayMs >= 1 && kMainLoopDelayMs <= 100,
+              "CLOCK_MAIN_LOOP_DELAY_MS must be between 1 and 100");
 static_assert(kBh1750Address == 0x23 || kBh1750Address == 0x5C,
               "CLOCK_BH1750_ADDRESS must be 0x23 or 0x5C");
 static_assert(CLOCK_LIGHT_DIAGNOSTICS == 0 ||
                   CLOCK_LIGHT_DIAGNOSTICS == 1,
               "CLOCK_LIGHT_DIAGNOSTICS must be 0 or 1");
+static_assert(kBleFastAdvertisingMinMs >= 20 &&
+                  kBleFastAdvertisingMinMs <=
+                      kBleFastAdvertisingMaxMs &&
+                  kBleFastAdvertisingMaxMs <= 10240,
+              "Fast BLE advertising interval must be 20-10240 ms");
+static_assert(kBleSlowAdvertisingMinMs >= 20 &&
+                  kBleSlowAdvertisingMinMs <=
+                      kBleSlowAdvertisingMaxMs &&
+                  kBleSlowAdvertisingMaxMs <= 10240,
+              "Slow BLE advertising interval must be 20-10240 ms");
+static_assert(kBleResyncGraceMs >= 60000UL,
+              "BLE resync grace must cover the bounded notification retries");
 
 #if defined(CONFIG_IDF_TARGET_ESP32)
+static_assert(kCpuFrequencyMhz == 0 || kCpuFrequencyMhz == 80 ||
+                  kCpuFrequencyMhz == 160 || kCpuFrequencyMhz == 240,
+              "Classic ESP32 CPU frequency must be 80, 160, or 240 MHz");
 constexpr bool classicPinUsesFlash(const uint8_t pin) {
   return pin >= 6 && pin <= 11;
 }
@@ -167,6 +223,9 @@ static_assert(!classicPinUsesFlash(kTm1637ClkPin) &&
               "TM1637 pins must be safe output-capable classic ESP32 GPIO");
 #endif
 #elif defined(CONFIG_IDF_TARGET_ESP32C3)
+static_assert(kCpuFrequencyMhz == 0 || kCpuFrequencyMhz == 80 ||
+                  kCpuFrequencyMhz == 160,
+              "ESP32-C3 CPU frequency must be 80 or 160 MHz");
 constexpr bool c3ModulePinIsReserved(const uint8_t pin) {
   return pin == 2 || pin == 8 || pin == 9 || pin == 18 || pin == 19;
 }

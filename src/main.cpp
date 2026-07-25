@@ -110,6 +110,12 @@ UserDisplayState displayState() {
 void setup() {
   Serial.begin(115200);
   delay(100);
+#if CLOCK_CPU_FREQUENCY_MHZ > 0
+  if (!setCpuFrequencyMhz(config::kCpuFrequencyMhz)) {
+    Serial.printf("CPU frequency change to %u MHz failed\n",
+                  config::kCpuFrequencyMhz);
+  }
+#endif
   pinMode(config::kRecoveryButtonPin, INPUT_PULLUP);
   Wire.begin(config::kI2cSdaPin, config::kI2cSclPin);
 
@@ -121,13 +127,13 @@ void setup() {
 
   Serial.printf(
       "Kids Clock boot: display=%s/%s, light=%s, RTC=%s, time=%s, "
-      "offset=%d min\n",
+      "offset=%d min, cpu=%u MHz\n",
                 clockDisplay.displayName(),
                 clockDisplay.displayAvailable() ? "ready" : "missing",
                 clockDisplay.lightSensorAvailable() ? "ready" : "missing",
                 clockTime.rtcAvailable() ? "present" : "missing",
                 clockTime.hasValidTime() ? "valid" : "needed",
-                clockTime.utcOffsetMinutes());
+                clockTime.utcOffsetMinutes(), getCpuFrequencyMhz());
 #if CLOCK_DISPLAY_DRIVER == CLOCK_DISPLAY_SSD1306
   Serial.printf("OLED configured at I2C address 0x%02X (%dx%d)\n",
                 config::kOledAddress, CLOCK_OLED_WIDTH, CLOCK_OLED_HEIGHT);
@@ -154,7 +160,7 @@ void loop() {
   }
 
   bleTime.tick(clockTime);
-  networkTime.tick();
+  networkTime.tick(bleTime.connected());
   clockDisplay.tick(clockTime, displayState());
-  delay(5);
+  delay(config::kMainLoopDelayMs);
 }

@@ -201,6 +201,11 @@ on a second phone or Mac. During the two-minute `PAIR` window confirm:
 - complete service UUID `7F510000-1B15-4DC7-9F3F-19B30A6F6A21`;
 - a connectable legacy advertisement that continues throughout the window.
 
+The onboarding advertisement remains at the previously qualified 30–60 ms
+interval. When the two-minute window closes, the same name, UUID, scan response,
+and connectable PDU continue at an 800–1000 ms interval for lower-duty bonded
+reconnects. Confirm both cadences over the air; an API log is not sufficient.
+
 The firmware explicitly emits a 27-byte primary advertisement: 3-byte
 general-discoverable/BR-EDR-unsupported flags, 18-byte complete 128-bit service
 UUID field, and 6-byte preferred-connection-interval field. The 16-byte scan
@@ -285,6 +290,8 @@ For each applicable physical iPhone:
 - test picker cancel/retry and picker failure recovery;
 - remove and re-add the clock, including ESP bond recovery;
 - test ESP reboot reconnect, walk out of range/back in range, and **Sync Now**;
+- after the two-minute window, confirm the 800–1000 ms low-duty advertisement
+  still restores a bonded background connection at five metres;
 - test locked/background reconnection and a six-hour `sync-request`;
 - test Core Bluetooth restoration after system termination, separately from an
   intentional force-quit;

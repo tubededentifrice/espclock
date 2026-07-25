@@ -318,6 +318,14 @@ Always retain the last good time while a source is being tried. Use watchdogs
 and ensure all failure paths free BLE/Wi-Fi scan results and return to display
 service.
 
+**Selected power disposition:** retain the proven fast BLE advertisement
+during the two-minute new-phone window, then use low-duty connectable
+advertising for bonded reconnects. At periodic refresh, allow the connected BLE
+owner to exhaust its bounded notification retries before starting Wi-Fi. Rank a
+bounded set of open BSSIDs from one scan and attempt that set without repeating
+the scan after each failure. The visible state vocabulary, boot portal timing,
+source priority, and per-boot BSSID exclusion remain unchanged.
+
 The four-digit display needs an unambiguous but quiet state vocabulary documented
 in the README, for example:
 
@@ -417,6 +425,9 @@ No item below should be replaced by “works on my phone.”
 - [ ] Run a 72-hour soak with periodic synchronization and forced failures;
       watchdog resets, heap growth, missed display refreshes, and drift are zero
       or within explicitly documented limits.
+- [ ] Measure whole-device average and peak current for the two BLE advertising
+      cadences, connected low-duty BLE, SoftAP portal, Wi-Fi scan/NTP, and
+      minimum/maximum display brightness; verify the 80 MHz C3 clock is stable.
 - [ ] Check regulator, display driver, wiring, and enclosure temperature at
       maximum brightness/radio activity.
 - [ ] Perform cable/connector tug, one-metre drop in the final enclosure, luggage
