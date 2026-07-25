@@ -229,7 +229,8 @@ the next experiment is a compact service-data blob/mask marker using this same
 service UUID. Recalculate both packet sizes before that experiment. Do not use
 Espressif's or any other organization's Bluetooth Company Identifier. If a
 registered company identifier proves empirically mandatory, stop and choose a
-legitimate owned/registered option before changing firmware or app filters.
+properly assigned and registered option before changing firmware or app
+filters.
 
 ## Build checks
 
@@ -262,12 +263,10 @@ plus fresh-install lifecycle ordering, cancellation, authorized relaunch,
 radio-state messaging, and remove/re-add cleanup.
 Run them on a compatible iOS Simulator or selected physical device from Xcode.
 
-The development Mac was repaired by running Xcode's first-launch installation
-and installing its iOS 26.5 component. The normal icon-inclusive app build,
-test-bundle build, and all 13 Simulator tests (four packet and nine onboarding
-lifecycle cases) now pass. If an updated Mac reports a CoreSimulator framework
-mismatch or `iOS ... is not installed`,
-run Xcode once, finish **Xcode → Settings → Components**, or use
+The normal icon-inclusive app build, test-bundle build, and all 13 Simulator
+tests (four packet and nine onboarding lifecycle cases) pass with the documented
+toolchain. If a Mac reports a CoreSimulator framework mismatch or `iOS ... is
+not installed`, run Xcode once, finish **Xcode → Settings → Components**, or use
 `xcodebuild -runFirstLaunch` followed by `xcodebuild -downloadPlatform iOS`.
 The platform download can be several gigabytes.
 

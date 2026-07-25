@@ -8,6 +8,7 @@
 #include <Wire.h>
 
 #include "OledBrightness.h"
+#include "OledPerimeter.h"
 
 namespace {
 constexpr uint8_t kDigitRows[10][7] = {
@@ -141,16 +142,31 @@ void Ssd1306DisplayBackend::applyBrightnessDither() {
   }
 }
 
+void Ssd1306DisplayBackend::drawPerimeterProgress(
+    const uint8_t minute,
+    const uint8_t second) {
+  const oledperimeter::LitSpan litSpan =
+      oledperimeter::litSpanForTime(width_, height_, minute, second);
+  const uint16_t endIndex =
+      static_cast<uint16_t>(litSpan.first + litSpan.count);
+  for (uint16_t index = litSpan.first; index < endIndex; ++index) {
+    const oledperimeter::Pixel pixel =
+        oledperimeter::progressPixelAt(width_, height_, index);
+    display_.drawPixel(pixel.x, pixel.y, SSD1306_WHITE);
+  }
+}
+
 void Ssd1306DisplayBackend::showTime(const uint8_t hour,
                                      const uint8_t minute,
-                                     const bool colonOn) {
+                                     const uint8_t second,
+                                     const bool) {
   if (!available_) {
     return;
   }
   const uint32_t frameKey = 0x10000000UL |
                             (static_cast<uint32_t>(hour) << 16U) |
                             (static_cast<uint32_t>(minute) << 8U) |
-                            static_cast<uint32_t>(colonOn);
+                            static_cast<uint32_t>(second);
   if (frameKey == lastFrameKey_) {
     return;
   }
@@ -181,17 +197,16 @@ void Ssd1306DisplayBackend::showTime(const uint8_t hour,
   x += digitWidth + kDigitGap;
   drawDigit(digits[1], x, y, digitWidth, digitHeight);
   x += digitWidth + kDigitGap;
-  if (colonOn) {
-    const int16_t radius = height_ >= 48 ? 2 : 1;
-    display_.fillCircle(x + colonWidth / 2, height_ / 3, radius,
-                        SSD1306_WHITE);
-    display_.fillCircle(x + colonWidth / 2, (height_ * 2) / 3, radius,
-                        SSD1306_WHITE);
-  }
+  const int16_t radius = height_ >= 48 ? 2 : 1;
+  display_.fillCircle(x + colonWidth / 2, height_ / 3, radius,
+                      SSD1306_WHITE);
+  display_.fillCircle(x + colonWidth / 2, (height_ * 2) / 3, radius,
+                      SSD1306_WHITE);
   x += colonWidth;
   drawDigit(digits[2], x, y, digitWidth, digitHeight);
   x += digitWidth + kDigitGap;
   drawDigit(digits[3], x, y, digitWidth, digitHeight);
+  drawPerimeterProgress(minute, second);
   present();
 }
 

@@ -10,7 +10,8 @@ class Ssd1306DisplayBackend final : public DisplayBackend {
   Ssd1306DisplayBackend(uint8_t width, uint8_t height, uint8_t address);
   bool begin() override;
   void setBrightness(uint8_t level) override;
-  void showTime(uint8_t hour, uint8_t minute, bool colonOn) override;
+  void showTime(uint8_t hour, uint8_t minute, uint8_t second,
+                bool colonOn) override;
   void showMessage(DisplayMessage message) override;
   const char* name() const override { return "SSD1306"; }
 
@@ -18,6 +19,7 @@ class Ssd1306DisplayBackend final : public DisplayBackend {
   void applyBrightnessDither();
   void drawDigit(uint8_t digit, int16_t x, int16_t y,
                  int16_t width, int16_t height);
+  void drawPerimeterProgress(uint8_t minute, uint8_t second);
   void present();
 
   Adafruit_SSD1306 display_;

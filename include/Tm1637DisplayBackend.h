@@ -9,7 +9,8 @@ class Tm1637DisplayBackend final : public DisplayBackend {
   Tm1637DisplayBackend(uint8_t clkPin, uint8_t dioPin);
   bool begin() override;
   void setBrightness(uint8_t level) override;
-  void showTime(uint8_t hour, uint8_t minute, bool colonOn) override;
+  void showTime(uint8_t hour, uint8_t minute, uint8_t second,
+                bool colonOn) override;
   void showMessage(DisplayMessage message) override;
   const char* name() const override { return "TM1637"; }
 

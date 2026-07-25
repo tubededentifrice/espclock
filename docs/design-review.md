@@ -3,7 +3,7 @@
 > **Review record, not build authority.** This document deliberately preserves
 > provisional alternatives and worst-case requirements raised during design.
 > Conflicts were resolved in favour of the current stacks in `README.md` and
-> `hardware/wiring.md`: a full-size ESP32 with the owned 128x64 OLED for
+> `hardware/wiring.md`: a full-size ESP32 with a 128x64 OLED for
 > solderless bring-up, then a 3.3 V red 1.2-inch TM1637 with a tested BSS138/5 V
 > fallback for the compact build. Follow those two files when wiring.
 
@@ -195,9 +195,9 @@ behavior—not as a reliable requirement:
 - randomize the station identity where supported and never send child/family
   identifiers or telemetry.
 
-The owner should explicitly decide whether opportunistic joining is enabled in
-the normal build. My recommendation is **disabled by default** until its legal,
-privacy, and spoofing tradeoff is accepted.
+The project must explicitly decide whether opportunistic joining is enabled in
+the normal build. The recommendation is **disabled by default** until its
+legal, privacy, and spoofing tradeoff is accepted.
 
 #### 5. Power loss destroys time without an external RTC
 
@@ -219,7 +219,7 @@ cells are a severe ingestion hazard. Do not permanently pot a replaceable cell.
 
 #### Platform choice
 
-Use **ESP32-C3 for the travel build**. Use the owned 38-pin ESP32 DevKit for
+Use **ESP32-C3 for the travel build**. Use a 38-pin ESP32 DevKit for
 solderless bring-up; its GPIO21/22 I2C pins make the OLED and BH1750 easy to
 test. The C3 has 2.4 GHz Wi-Fi and Bluetooth LE 5, is much smaller than the
 original board, and is ample for display, RTC, sensor, BLE, and
@@ -239,7 +239,7 @@ on a native-USB C3 design; Espressif assigns them to USB D−/D+.
 
 #### Display selection and logic levels
 
-Test the owned **0.96-inch 128x64 OLED first** through the modular SSD1306
+Test a **0.96-inch 128x64 OLED first** through the modular SSD1306
 backend. It should yield larger digits than the narrow 0.91-inch unit, normally
 128x32. Both require a two-metre test and have an always-on pixel-aging risk.
 For the travel build, use a **red 1.2-inch four-digit seven-segment display**
@@ -329,7 +329,8 @@ source priority, and per-boot BSSID exclusion remain unchanged.
 The four-digit display needs an unambiguous but quiet state vocabulary documented
 in the README, for example:
 
-- normal colon cadence: valid local time;
+- steady OLED colon with alternating one-minute perimeter fill/drain, or normal
+  TM1637 colon cadence: valid local time;
 - brief slow colon pulse: looking for sync;
 - distinct dot/colon pattern: pairing available;
 - persistent subtle dot: UTC/RTC valid but timezone stale;

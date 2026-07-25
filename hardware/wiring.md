@@ -6,9 +6,9 @@ compact travel build. The firmware profiles in `platformio.ini` and defaults in
 
 ## Solderless first prototype
 
-- full-size 38-pin ESP32 DevKit, already owned;
-- 0.96-inch 128x64 I2C OLED, already owned;
-- BH1750/GY-302 ambient-light module, already owned;
+- full-size 38-pin ESP32 DevKit;
+- 0.96-inch 128x64 I2C OLED;
+- BH1750/GY-302 ambient-light module;
 - no DS3231 required for the first functional test;
 - breadboard(s) and female-to-female or male-to-female jumpers as appropriate.
 

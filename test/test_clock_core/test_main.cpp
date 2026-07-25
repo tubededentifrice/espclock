@@ -4,6 +4,7 @@
 
 #include "ClockCore.h"
 #include "OledBrightness.h"
+#include "OledPerimeter.h"
 
 void test_epoch_validation() {
   TEST_ASSERT_FALSE(clockcore::isValidEpoch(1704067199LL));
@@ -129,6 +130,77 @@ void test_oled_brightness_steps_are_monotonic_and_bounded() {
       oledbrightness::ditherThreshold(255));
 }
 
+void test_oled_perimeter_uses_each_extreme_pixel_once() {
+  TEST_ASSERT_EQUAL_UINT16(380, oledperimeter::pixelCount(128, 64));
+  TEST_ASSERT_EQUAL_UINT16(316, oledperimeter::pixelCount(128, 32));
+
+  oledperimeter::Pixel pixel = oledperimeter::pixelAt(128, 64, 0);
+  TEST_ASSERT_EQUAL_UINT16(0, pixel.x);
+  TEST_ASSERT_EQUAL_UINT16(0, pixel.y);
+  pixel = oledperimeter::pixelAt(128, 64, 127);
+  TEST_ASSERT_EQUAL_UINT16(127, pixel.x);
+  TEST_ASSERT_EQUAL_UINT16(0, pixel.y);
+  pixel = oledperimeter::pixelAt(128, 64, 190);
+  TEST_ASSERT_EQUAL_UINT16(127, pixel.x);
+  TEST_ASSERT_EQUAL_UINT16(63, pixel.y);
+  pixel = oledperimeter::pixelAt(128, 64, 317);
+  TEST_ASSERT_EQUAL_UINT16(0, pixel.x);
+  TEST_ASSERT_EQUAL_UINT16(63, pixel.y);
+  pixel = oledperimeter::pixelAt(128, 64, 379);
+  TEST_ASSERT_EQUAL_UINT16(0, pixel.x);
+  TEST_ASSERT_EQUAL_UINT16(1, pixel.y);
+}
+
+void test_oled_perimeter_progress_starts_at_top_center() {
+  oledperimeter::Pixel pixel =
+      oledperimeter::progressPixelAt(128, 64, 0);
+  TEST_ASSERT_EQUAL_UINT16(64, pixel.x);
+  TEST_ASSERT_EQUAL_UINT16(0, pixel.y);
+  pixel = oledperimeter::progressPixelAt(128, 64, 63);
+  TEST_ASSERT_EQUAL_UINT16(127, pixel.x);
+  TEST_ASSERT_EQUAL_UINT16(0, pixel.y);
+  pixel = oledperimeter::progressPixelAt(128, 64, 64);
+  TEST_ASSERT_EQUAL_UINT16(127, pixel.x);
+  TEST_ASSERT_EQUAL_UINT16(1, pixel.y);
+  pixel = oledperimeter::progressPixelAt(128, 64, 379);
+  TEST_ASSERT_EQUAL_UINT16(63, pixel.x);
+  TEST_ASSERT_EQUAL_UINT16(0, pixel.y);
+}
+
+void test_oled_perimeter_fills_in_sixty_steps() {
+  TEST_ASSERT_EQUAL_UINT16(
+      0, oledperimeter::filledPixelCount(128, 64, 0));
+  TEST_ASSERT_EQUAL_UINT16(
+      6, oledperimeter::filledPixelCount(128, 64, 1));
+  TEST_ASSERT_EQUAL_UINT16(
+      190, oledperimeter::filledPixelCount(128, 64, 30));
+  TEST_ASSERT_EQUAL_UINT16(
+      373, oledperimeter::filledPixelCount(128, 64, 59));
+  TEST_ASSERT_EQUAL_UINT16(
+      380, oledperimeter::filledPixelCount(128, 64, 60));
+  TEST_ASSERT_EQUAL_UINT16(
+      6, oledperimeter::filledPixelCountForSecond(128, 64, 0));
+  TEST_ASSERT_EQUAL_UINT16(
+      380, oledperimeter::filledPixelCountForSecond(128, 64, 59));
+}
+
+void test_oled_perimeter_alternates_fill_and_drain_minutes() {
+  oledperimeter::LitSpan span =
+      oledperimeter::litSpanForTime(128, 64, 2, 0);
+  TEST_ASSERT_EQUAL_UINT16(0, span.first);
+  TEST_ASSERT_EQUAL_UINT16(6, span.count);
+  span = oledperimeter::litSpanForTime(128, 64, 2, 59);
+  TEST_ASSERT_EQUAL_UINT16(0, span.first);
+  TEST_ASSERT_EQUAL_UINT16(380, span.count);
+
+  span = oledperimeter::litSpanForTime(128, 64, 3, 0);
+  TEST_ASSERT_EQUAL_UINT16(6, span.first);
+  TEST_ASSERT_EQUAL_UINT16(374, span.count);
+  span = oledperimeter::litSpanForTime(128, 64, 3, 59);
+  TEST_ASSERT_EQUAL_UINT16(380, span.first);
+  TEST_ASSERT_EQUAL_UINT16(0, span.count);
+}
+
 void test_display_frame_alternates_status_and_valid_time() {
   clockcore::DisplayFrame frame = clockcore::makeDisplayFrame(
       1000, true, true, UserDisplayState::kPairing, 1500);
@@ -243,6 +315,10 @@ int main(int, char**) {
   RUN_TEST(test_light_filter_reset_discards_stale_brightness);
   RUN_TEST(test_light_levels_cover_the_full_ambient_range);
   RUN_TEST(test_oled_brightness_steps_are_monotonic_and_bounded);
+  RUN_TEST(test_oled_perimeter_uses_each_extreme_pixel_once);
+  RUN_TEST(test_oled_perimeter_progress_starts_at_top_center);
+  RUN_TEST(test_oled_perimeter_fills_in_sixty_steps);
+  RUN_TEST(test_oled_perimeter_alternates_fill_and_drain_minutes);
   RUN_TEST(test_display_frame_alternates_status_and_valid_time);
   RUN_TEST(test_display_frame_colon_signals_sync_quality);
   RUN_TEST(test_bssid_backoff_is_per_radio_not_ssid);

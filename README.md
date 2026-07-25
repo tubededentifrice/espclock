@@ -2,12 +2,12 @@
 
 A small, child-friendly travel clock: plug it into USB-C and it immediately shows the best time it has, then quietly tries to improve it from an authorized phone or the Internet.
 
-The first solderless prototype uses a **full-size 38-pin ESP32 DevKit**, the
-owned **0.96-inch 128x64 I2C OLED**, and an owned **BH1750/GY-302**. A DS3231 is
-optional for this bring-up: once synchronized, the ESP keeps time while USB
-power remains connected. The compact travel build remains an **ESP32-C3 Super
-Mini**, preferably with a larger 1.2-inch TM1637 display and a battery-backed
-DS3231 after the behavior has been proven on the bench.
+The reference solderless prototype uses a **full-size 38-pin ESP32 DevKit**, a
+**0.96-inch 128x64 I2C OLED**, and a **BH1750/GY-302**. A DS3231 is optional for
+this bring-up: once synchronized, the ESP keeps time while USB power remains
+connected. The compact travel build uses an **ESP32-C3 Super Mini**, preferably
+with a larger 1.2-inch TM1637 display and a battery-backed DS3231 after the
+behavior has been proven on the bench.
 
 ## What it does
 
@@ -37,7 +37,7 @@ This is an honest limit of phone operating systems and profiles, not an ESP32 co
 
 ## Hardware choice
 
-| Board already available | Wi-Fi | Bluetooth | Size/fit | Decision |
+| Board option | Wi-Fi | Bluetooth | Size/fit | Decision |
 |---|---:|---:|---|---|
 | **ESP32 38-pin** | **Yes** | **Classic + BLE** | Breadboard-friendly, usually Micro-USB | **Selected for the first solderless prototype** |
 | **ESP32-C3 Super Mini** | **Yes** | **BLE 5** | **About 22.5 × 18 mm, USB-C** | **Selected** |
@@ -49,9 +49,9 @@ the 38-pin board, so it remains the travel target. The firmware has distinct,
 pin-safe PlatformIO profiles for both board families and for TM1637, SSD1306
 128x64, and SSD1306 128x32 displays.
 
-Of the two OLEDs already on hand, start with the **0.96-inch 128x64** unit. The
-narrow 0.91-inch module is normally 128x32; with the same 128-pixel width but
-half as many rows, its digits are substantially shorter. Neither tiny OLED is
+For OLED bench bring-up, start with the **0.96-inch 128x64** unit. The narrow
+0.91-inch module is normally 128x32; with the same 128-pixel width but half as
+many rows, its digits are substantially shorter. Neither tiny OLED is
 guaranteed readable from two metres, and continuously displayed OLED pixels can
 age, so the physical distance/night test decides whether either is suitable for
 the final clock. The display backend is modular, so that test does not lock the
@@ -59,33 +59,37 @@ firmware to one screen.
 
 ## Bill of materials
 
-Prices were checked on **2026-07-25** and are approximate. Search links and a more detailed comparison are in [docs/hardware-research.md](docs/hardware-research.md).
+Prices were checked on **2026-07-25** and are approximate. This regional
+snapshot uses UAE prices in AED for a consistent comparison; it does not assume
+contributors are in the UAE. Search links and a more detailed comparison are
+in [docs/hardware-research.md](docs/hardware-research.md).
 
-| Qty | Required part | What to buy | Approx. AliExpress | Approx. Amazon.ae |
+| Qty | Part / role | What to buy | Approx. AliExpress | Approx. Amazon.ae |
 |---:|---|---|---:|---:|
-| 1 | 38-pin ESP32 DevKit | Already owned; first breadboard target | AED 15–30 | AED 25–55 |
-| 1 | 0.96-inch SSD1306 OLED, 128x64 | Already owned; first display target, normally `0x3C` | AED 5–12 | AED 15–35 |
-| 1 | 0.91-inch SSD1306 OLED, normally 128x32 | Already owned; optional comparison target | AED 4–10 | AED 15–30 |
-| 1 | BH1750/GY-302 light sensor | Already owned; default address `0x23` | AED 3–8 | AED 10–30 |
-| 1 | ESP32-C3 Super Mini | Already owned; compact travel target | AED 9–18 | AED 20–45 |
+| 1 | 38-pin ESP32 DevKit | Reference breadboard target | AED 15–30 | AED 25–55 |
+| 1 | 0.96-inch SSD1306 OLED, 128x64 | Default bench display, normally `0x3C` | AED 5–12 | AED 15–35 |
+| 1 | 0.91-inch SSD1306 OLED, normally 128x32 | Optional comparison display | AED 4–10 | AED 15–30 |
+| 1 | BH1750/GY-302 light sensor | Ambient-light input; default address `0x23` | AED 3–8 | AED 10–30 |
+| 1 | ESP32-C3 Super Mini | Compact travel target | AED 9–18 | AED 20–45 |
 | 1 | 1.2-inch red TM1637 clock display | Optional final-display candidate; centre colon | AED 15–40 | AED 35–70 |
 | 1 | DS3231 RTC module | Optional for bring-up, required for unplugged retention; verify a non-charging CR2032 arrangement | AED 6–15 | AED 20–45 |
 | 1 | Branded CR2032 | Primary, non-rechargeable coin cell | AED 2–5 | AED 5–10 |
 | 1 | 5 × 7 cm, 2.54 mm perfboard | Single-sided is sufficient | AED 3–7 | AED 10–20/pack |
 | 2 | Female socket strips | Socket the C3 | AED 1–3 | AED 8–15/pack |
 | 1 each | 100 µF ≥10 V electrolytic; 100 nF ceramic | Local decoupling | AED 1–2 | Usually in an assortment |
-| 1 | USB-C cable and certified 5 V/1 A supply | A known-good phone charger is fine | existing | AED 15–35 |
+| 1 | USB-C cable and certified 5 V/1 A supply | Use a data-capable cable for flashing | Varies | AED 15–35 |
 | — | Solid wire, solder, heat-shrink, smoked red window | Workshop consumables | AED 3–8 allocated | AED 10–25 |
 
-The first breadboard test needs no new electronic module. A compact final build
-with a purchased TM1637, RTC, cell, and perfboard is roughly **AED 28–72** from
-AliExpress excluding shipping, case, cable, and charger.
+A new bench build using the default ESP32/OLED/BH1750 configuration is roughly
+**AED 23–50** from AliExpress. A compact travel build with the C3, TM1637,
+BH1750, RTC/cell, perfboard, sockets, and decoupling is roughly **AED 40–98**.
+Both estimates exclude shipping, enclosure, cable, and power supply.
 
 Optional only if the exact large display fails its 3.3 V acceptance test: a two-channel BSS138 level-shifter module, approximately AED 2–8.
 
 ## Wiring
 
-For the first solderless test, power both owned I2C modules from the full-size
+For the first solderless test, power the OLED and BH1750 from the full-size
 ESP32's regulated **3.3 V** rail:
 
 | 38-pin ESP32 | Connect to | Notes |
@@ -214,7 +218,7 @@ profiles are:
 
 | PlatformIO environment | Board and display |
 |---|---|
-| `esp32-devkit-oled-128x64` | 38-pin ESP32, owned 0.96-inch OLED |
+| `esp32-devkit-oled-128x64` | 38-pin ESP32, 0.96-inch 128x64 OLED |
 | `esp32-devkit-oled-128x32` | 38-pin ESP32, likely geometry of the 0.91-inch OLED |
 | `esp32-devkit-tm1637` | 38-pin ESP32, TM1637 on GPIO25/26 |
 | `esp32-c3-oled-128x64` | C3, 128x64 OLED |
@@ -289,8 +293,9 @@ The current firmware stores a validated offset in 15-minute-capable minutes, not
 
 | Display | Meaning |
 |---|---|
-| `HH:MM`, one blink per second | Phone-confirmed local offset this boot |
-| `HH MM`, brief colon pulse every two seconds | Valid UTC with a retained, not-yet-confirmed timezone offset |
+| OLED `HH:MM`, steady colon and clockwise one-pixel perimeter | Valid local time; starting at top-center, even minutes fill the perimeter and odd minutes erase the same path in 60 equal steps |
+| TM1637 `HH:MM`, one blink per second | Phone-confirmed local offset this boot |
+| TM1637 `HH MM`, brief colon pulse every two seconds | Valid UTC with a retained, not-yet-confirmed timezone offset |
 | `PAIR` alternating with time | BLE pairing/sync opportunity |
 | `SET` on OLED / `SEt` on TM1637 | No-app phone setup portal is active |
 | `WIFI` / seven-segment approximation | Trying an open network/NTP |
@@ -405,8 +410,8 @@ The C3 travel profiles request an 80 MHz CPU clock; the classic breadboard
 profiles retain their normal clock because they are bring-up targets. The main
 task yields for 20 ms instead of polling every 5 ms, and both display backends
 avoid retransmitting an unchanged frame. These changes do not alter the
-250 ms display policy, one-second colon cadence, portal service, recovery
-gesture, or BLE callbacks.
+250 ms display policy, TM1637 colon cadence, OLED one-minute perimeter cadence,
+portal service, recovery gesture, or BLE callbacks.
 
 At each later six-hour refresh, an already connected iPhone gets a 90-second
 BLE-first grace period covering the firmware's bounded notification retries.
@@ -452,7 +457,7 @@ Do not close or pot the case until every applicable physical item passes.
 
 ### Automated
 
-- [x] `uv run pio test -e native` passes (16/16).
+- [x] `uv run pio test -e native` passes (20/20).
 - [x] `uv run pio run -e esp32-devkit-oled-128x64` completes.
 - [x] All six display/board profiles compile in the final verification matrix.
 - [x] No firmware compiler warnings are reported.
@@ -464,7 +469,8 @@ Do not close or pot the case until every applicable physical item passes.
 ### Power, display, and sensor
 
 - [ ] USB cold-start succeeds 20 times without pressing a button.
-- [ ] Both owned OLED profiles render correct, centered four-digit time and all status words.
+- [ ] Both OLED profiles render correct, centered four-digit time, steady colon,
+  top-center 60-step alternating perimeter, and all status words.
 - [ ] 0.96-inch and 0.91-inch displays are compared at two metres in daylight.
 - [ ] Minimum brightness remains readable but does not illuminate a dark bedroom.
 - [ ] BH1750 responds smoothly over dark, bedroom, room, and daylight conditions.
@@ -526,10 +532,13 @@ Do not close or pot the case until every applicable physical item passes.
 - Cheap C3, DS3231, BH1750, OLED, and large TM1637 modules vary. The 0.91-inch
   unit may even use an SH1106-compatible controller despite its listing.
   Qualify the exact parts before sealing a child-facing build.
-- An always-on OLED can suffer uneven pixel aging. The tiny owned OLEDs are
-  excellent for solderless bring-up, but the larger TM1637 remains the leading
-  final-display candidate until the two-metre and long-duration tests pass.
-- A four-digit display provides no seconds or named timezone. A brief colon pulse indicates that the retained offset has not been phone-confirmed this boot; the serial log gives deeper diagnostics.
+- An always-on OLED can suffer uneven pixel aging. The supported small OLEDs
+  are excellent for solderless bring-up, but the larger TM1637 remains the
+  leading final-display candidate until the two-metre and long-duration tests
+  pass.
+- A four-digit display provides no numeric seconds or named timezone. The OLED
+  perimeter gives quiet seconds progress but does not expose timezone freshness;
+  the TM1637 colon cadence and serial log provide that diagnostic.
 
 These limits are why the RTC plus no-app portal are retained: the clock remains recoverable without pretending iOS guarantees continuous execution.
 

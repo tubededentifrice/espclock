@@ -1,12 +1,14 @@
 # Hardware research and recommendation
 
-Research and prices checked 2026-07-25. Marketplace prices move constantly and
-shipping can cost more than the parts, so the purchase links below are primarily
-stable search links and the prices are realistic ranges rather than quotes.
+Research and prices checked 2026-07-25. This regional snapshot uses UAE prices
+in AED for a consistent comparison; it does not assume contributors are in the
+UAE. Marketplace prices move constantly and shipping can cost more than the
+parts, so the purchase links below are primarily stable search links and the
+prices are realistic ranges rather than quotes.
 
 ## Executive recommendation
 
-Prototype without solder on the owned **38-pin ESP32 DevKit**,
+Prototype without solder on a **38-pin ESP32 DevKit**,
 **0.96-inch 128x64 SSD1306 OLED**, and **BH1750/GY-302**. Build the travelling
 version around an **ESP32-C3 Super Mini**, a **red 1.2-inch four-digit TM1637
 module**, the same ambient-light module, and a
@@ -14,12 +16,12 @@ module**, the same ambient-light module, and a
 headers so the ESP and sensors remain replaceable. Power the display, sensor and
 RTC from the C3's regulated 3.3 V rail so no ESP pin is exposed to 5 V.
 
-This uses the smallest, least expensive suitable controller among the boards
-already on hand while retaining both 2.4 GHz Wi-Fi and BLE. The 1.2-inch display
-sets a roughly 130 x 50 mm front face: still a small travel-alarm-clock form, but
-large enough to meet the stated two-metre viewing distance without depending on
-perfect eyesight. Expected incremental parts cost is **AED 34–68** excluding
-the already-owned ESP, USB-C cable/charger, postage, and printed case.
+The C3 is the smallest, least expensive suitable controller in the compared
+set while retaining both 2.4 GHz Wi-Fi and BLE. The 1.2-inch display sets a
+roughly 130 x 50 mm front face: still a small travel-alarm-clock form, but large
+enough to meet the stated two-metre viewing distance without depending on
+perfect eyesight. The core travel-build hardware is approximately **AED
+40–98**, excluding shipping, enclosure, cable, and power supply.
 
 There is one important product limitation: **a standards-only Bluetooth
 connection cannot automatically obtain local time from every Android and iOS
@@ -40,7 +42,7 @@ cross-platform fallback technically available.
 
 ## ESP board comparison
 
-| Board on hand | Radio capability | Typical board size / USB | Useful observations | Verdict |
+| Board | Radio capability | Typical board size / USB | Useful observations | Verdict |
 |---|---|---|---|---|
 | Classic ESP32, 38-pin | 2.4 GHz 802.11b/g/n, Bluetooth Classic and BLE 4.2 | about 54.4 x 27.9 mm, usually Micro-USB | Dual-core 240 MHz and many GPIOs, but much larger; Classic Bluetooth adds no useful phone-time standard | Excellent bench prototype, unnecessarily large final board |
 | ESP32-C3 Super Mini | 2.4 GHz 802.11b/g/n and BLE 5; no Classic Bluetooth | about 22.5 x 18 mm, USB-C | 160 MHz RISC-V, 4 MB flash on common boards, 11 exposed GPIOs; enough for two display pins and one I2C bus | **Recommended** |
@@ -71,8 +73,8 @@ Inspect the received board for the expected ESP32-C3 marking and test Wi-Fi/BLE
 range before encapsulating it. Some very cheap clones have mediocre ceramic
 antenna layout. Do not put copper, perfboard ground plane, a coin cell, epoxy
 filled with conductive pigment, or metal case hardware immediately above or in
-front of the antenna end. If a particular C3 has poor RF range, use the C6 Mini
-N4 already on hand before redesigning anything.
+front of the antenna end. If a particular C3 has poor RF range, substitute a C6
+Mini N4 before redesigning anything.
 
 Physical comparison on 2026-07-25 demonstrated why this qualification is a
 hard gate. One bare Super Mini received ten nearby Wi-Fi networks (strongest
@@ -130,7 +132,7 @@ specified two metres and it is rejected for the first build. An HT16K33
 require level translation, with no benefit to this four-digit clock. A
 continuously-lit OLED is still a weaker final-build choice because it has a
 smaller useful digit height and is susceptible to long-term burn-in. However,
-the two owned OLED modules are excellent solderless bring-up displays. The
+the two supported OLED sizes are excellent solderless bring-up displays. The
 0.96-inch 128x64 unit is the first test target. The narrow 0.91-inch module is
 normally 128x32, giving roughly half the available digit height. Firmware
 profiles support both; two-metre readability remains a physical acceptance
@@ -295,10 +297,10 @@ remain a bounded best-effort fallback, never the foundation of correct time.
 
 | Qty | Part | Selection notes | AliExpress estimate | Amazon.ae estimate |
 |---:|---|---|---:|---:|
-| 1 | 38-pin ESP32 DevKit | Already on hand; solderless first target | AED 15–30 | AED 25–55 |
-| 1 | 0.96-inch SSD1306 128x64 OLED | Already on hand; first display profile | AED 5–12 | AED 15–35 |
-| 1 | 0.91-inch SSD1306 OLED, likely 128x32 | Already on hand; comparison profile | AED 4–10 | AED 15–30 |
-| 1 | ESP32-C3 Super Mini, 4 MB, USB-C | Already on hand; verify radio and pinout | AED 9–18 | AED 20–45 |
+| 1 | 38-pin ESP32 DevKit | Solderless reference target | AED 15–30 | AED 25–55 |
+| 1 | 0.96-inch SSD1306 128x64 OLED | Default bench display profile | AED 5–12 | AED 15–35 |
+| 1 | 0.91-inch SSD1306 OLED, likely 128x32 | Optional comparison profile | AED 4–10 | AED 15–30 |
+| 1 | ESP32-C3 Super Mini, 4 MB, USB-C | Travel target; verify radio and pinout | AED 9–18 | AED 20–45 |
 | 1 | TM1637 1.2-inch red 4-digit module with centre colon | Buy an assembled module, not bare digits | AED 15–40 | AED 35–70 |
 | 1 | BH1750FVI GY-302 I2C breakout | Power at 3.3 V; ADDR tied low/default | AED 3–8 | AED 10–30 |
 | 1 | DS3231 RTC breakout | Cheap units are clone-risk; qualify drift and verify no cell charger | AED 6–15 | AED 20–45 |
@@ -306,12 +308,15 @@ remain a bounded best-effort fallback, never the foundation of correct time.
 | 1 | 5 x 7 cm single-sided 2.54 mm perfboard | Cut down after test | AED 3–7 | AED 10–20/pack |
 | 2 | 8-pin 2.54 mm female socket strips | Socket the C3; cut longer strip to size | AED 1–3 | AED 8–15/pack |
 | 1 | 100 µF, ≥10 V electrolytic plus 100 nF ceramic | Display bulk/rail decoupling | AED 1–2 | usually from assortment |
-| — | 24–28 AWG solid wire, solder, heat-shrink, red smoked window | Existing workshop consumables | AED 3–8 allocated | AED 10–25 |
+| — | 24–28 AWG solid wire, solder, heat-shrink, red smoked window | Workshop consumables | AED 3–8 allocated | AED 10–25 |
 
-Estimated one-off total including a purchased C3 is **AED 47–96 from
-AliExpress** before postage. With the C3 and workshop consumables already on
-hand, expect **AED 29–70**. Amazon.ae is faster but commonly requires multipacks,
-making the checkout total much higher even though spare parts remain.
+The core travel configuration (C3, TM1637, BH1750, RTC/cell, perfboard, sockets,
+and decoupling) is approximately **AED 40–98 from AliExpress** before shipping,
+enclosure, cable, and power supply. Including the listed consumables allowance
+brings it to approximately **AED 43–106**. The default bench configuration
+(38-pin ESP32, 128x64 OLED, and BH1750) is approximately **AED 23–50**.
+Amazon.ae commonly requires multipacks, making the checkout total higher even
+though spare parts remain.
 
 ## Prototype-board wiring
 

@@ -127,7 +127,8 @@ void DisplayController::showClock(const TimeKeeper& clock) {
   struct tm local = {};
   clock.localTime(local);
   display_.showTime(static_cast<uint8_t>(local.tm_hour),
-                    static_cast<uint8_t>(local.tm_min), colonOn_);
+                    static_cast<uint8_t>(local.tm_min),
+                    static_cast<uint8_t>(local.tm_sec), colonOn_);
 }
 
 void DisplayController::showMessage(const DisplayMessage message) {
