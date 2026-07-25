@@ -15,6 +15,7 @@ class Ssd1306DisplayBackend final : public DisplayBackend {
   const char* name() const override { return "SSD1306"; }
 
  private:
+  void applyBrightnessDither();
   void drawDigit(uint8_t digit, int16_t x, int16_t y,
                  int16_t width, int16_t height);
   void present();

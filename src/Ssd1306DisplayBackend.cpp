@@ -4,22 +4,30 @@
 
 #include "Ssd1306DisplayBackend.h"
 
+#include <Arduino.h>
 #include <Wire.h>
 
+#include "OledBrightness.h"
+
 namespace {
-constexpr uint8_t kSegmentMasks[10] = {
-    0b00111111,  // 0: A B C D E F
-    0b00000110,  // 1: B C
-    0b01011011,  // 2: A B D E G
-    0b01001111,  // 3: A B C D G
-    0b01100110,  // 4: B C F G
-    0b01101101,  // 5: A C D F G
-    0b01111101,  // 6: A C D E F G
-    0b00000111,  // 7: A B C
-    0b01111111,  // 8
-    0b01101111,  // 9
+constexpr uint8_t kDigitRows[10][7] = {
+    {0b01110, 0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b01110},
+    {0b00100, 0b01100, 0b00100, 0b00100, 0b00100, 0b00100, 0b01110},
+    {0b01110, 0b10001, 0b00001, 0b00010, 0b00100, 0b01000, 0b11111},
+    {0b11110, 0b00001, 0b00001, 0b01110, 0b00001, 0b00001, 0b11110},
+    {0b00010, 0b00110, 0b01010, 0b10010, 0b11111, 0b00010, 0b00010},
+    {0b11111, 0b10000, 0b10000, 0b11110, 0b00001, 0b00001, 0b11110},
+    {0b01110, 0b10000, 0b10000, 0b11110, 0b10001, 0b10001, 0b01110},
+    {0b11111, 0b00001, 0b00010, 0b00100, 0b01000, 0b01000, 0b01000},
+    {0b01110, 0b10001, 0b10001, 0b01110, 0b10001, 0b10001, 0b01110},
+    {0b01110, 0b10001, 0b10001, 0b01111, 0b00001, 0b00001, 0b01110},
 };
-constexpr uint8_t kContrast[8] = {1, 2, 4, 8, 16, 32, 64, 128};
+constexpr uint8_t kBayer4x4[4][4] = {
+    {0, 8, 2, 10},
+    {12, 4, 14, 6},
+    {3, 11, 1, 9},
+    {15, 7, 13, 5},
+};
 
 const char* messageText(const DisplayMessage message) {
   switch (message) {
@@ -63,13 +71,23 @@ bool Ssd1306DisplayBackend::begin() {
 }
 
 void Ssd1306DisplayBackend::setBrightness(const uint8_t level) {
-  const uint8_t bounded = level > 7 ? 7 : level;
+  const uint8_t bounded = oledbrightness::boundedLevel(level);
   if (!available_ || bounded == brightness_) {
     return;
   }
   brightness_ = bounded;
   display_.ssd1306_command(SSD1306_SETCONTRAST);
-  display_.ssd1306_command(kContrast[bounded]);
+  display_.ssd1306_command(oledbrightness::contrast(bounded));
+  // Spatial dimming is part of the rendered frame, so force the current
+  // content to be regenerated after every brightness-level change.
+  lastFrameKey_ = 0xFFFFFFFFUL;
+#if CLOCK_LIGHT_DIAGNOSTICS
+  Serial.printf("LIGHT oled_level=%u contrast=%u pixel_coverage=%u/16\n",
+                static_cast<unsigned>(bounded),
+                static_cast<unsigned>(oledbrightness::contrast(bounded)),
+                static_cast<unsigned>(
+                    oledbrightness::ditherThreshold(bounded)));
+#endif
 }
 
 void Ssd1306DisplayBackend::drawDigit(const uint8_t digit,
@@ -80,48 +98,46 @@ void Ssd1306DisplayBackend::drawDigit(const uint8_t digit,
   if (digit > 9) {
     return;
   }
-  const uint8_t mask = kSegmentMasks[digit];
-  const int16_t thickness = height >= 48 ? 5 : 3;
-  const int16_t half = height / 2;
-  const int16_t horizontalWidth = width - 2 * thickness;
-  const int16_t verticalHeight = half - 2 * thickness;
-
-  if (mask & (1U << 0)) {
-    display_.fillRoundRect(x + thickness, y, horizontalWidth, thickness,
-                           thickness / 2, SSD1306_WHITE);
-  }
-  if (mask & (1U << 1)) {
-    display_.fillRoundRect(x + width - thickness, y + thickness, thickness,
-                           verticalHeight, thickness / 2, SSD1306_WHITE);
-  }
-  if (mask & (1U << 2)) {
-    display_.fillRoundRect(x + width - thickness, y + half + thickness,
-                           thickness, verticalHeight, thickness / 2,
-                           SSD1306_WHITE);
-  }
-  if (mask & (1U << 3)) {
-    display_.fillRoundRect(x + thickness, y + height - thickness,
-                           horizontalWidth, thickness, thickness / 2,
-                           SSD1306_WHITE);
-  }
-  if (mask & (1U << 4)) {
-    display_.fillRoundRect(x, y + half + thickness, thickness, verticalHeight,
-                           thickness / 2, SSD1306_WHITE);
-  }
-  if (mask & (1U << 5)) {
-    display_.fillRoundRect(x, y + thickness, thickness, verticalHeight,
-                           thickness / 2, SSD1306_WHITE);
-  }
-  if (mask & (1U << 6)) {
-    display_.fillRoundRect(x + thickness, y + half - thickness / 2,
-                           horizontalWidth, thickness, thickness / 2,
-                           SSD1306_WHITE);
+  const int16_t cellWidth = width / 5;
+  const int16_t cellHeight = height / 7;
+  for (uint8_t row = 0; row < 7; ++row) {
+    for (uint8_t column = 0; column < 5; ++column) {
+      if (kDigitRows[digit][row] & (1U << (4U - column))) {
+        display_.fillRect(x + column * cellWidth, y + row * cellHeight,
+                          cellWidth, cellHeight, SSD1306_WHITE);
+      }
+    }
   }
 }
 
 void Ssd1306DisplayBackend::present() {
   if (available_) {
+    applyBrightnessDither();
     display_.display();
+  }
+}
+
+void Ssd1306DisplayBackend::applyBrightnessDither() {
+  const uint8_t threshold =
+      oledbrightness::ditherThreshold(brightness_);
+  if (threshold >= 16) {
+    return;
+  }
+  uint8_t* buffer = display_.getBuffer();
+  if (buffer == nullptr) {
+    return;
+  }
+  for (uint8_t y = 0; y < height_; ++y) {
+    const uint8_t pixelMask = static_cast<uint8_t>(1U << (y & 7U));
+    const uint16_t rowOffset =
+        static_cast<uint16_t>(y / 8U) * width_;
+    for (uint8_t x = 0; x < width_; ++x) {
+      uint8_t& pixels = buffer[rowOffset + x];
+      if ((pixels & pixelMask) != 0 &&
+          kBayer4x4[y & 3U][x & 3U] >= threshold) {
+        pixels &= static_cast<uint8_t>(~pixelMask);
+      }
+    }
   }
 }
 
@@ -141,18 +157,20 @@ void Ssd1306DisplayBackend::showTime(const uint8_t hour,
   lastFrameKey_ = frameKey;
   display_.clearDisplay();
 
-  constexpr int16_t kOuterMargin = 2;
-  constexpr int16_t kColonWidth = 8;
   constexpr int16_t kDigitGap = 2;
-  const int16_t digitWidth =
-      (width_ - 2 * kOuterMargin - kColonWidth - 3 * kDigitGap) / 4;
-  const int16_t digitHeight = height_ - 4;
-  const int16_t y = 2;
-  // Move the static digit pattern by up to two pixels every five minutes to
+  const int16_t cellWidth = height_ >= 48 ? 5 : 4;
+  const int16_t cellHeight = height_ >= 48 ? 8 : 4;
+  const int16_t digitWidth = cellWidth * 5;
+  const int16_t digitHeight = cellHeight * 7;
+  const int16_t colonWidth = height_ >= 48 ? 8 : 6;
+  const int16_t contentWidth =
+      4 * digitWidth + colonWidth + 3 * kDigitGap;
+  const int16_t y = (height_ - digitHeight) / 2;
+  // Move the static digit pattern by one pixel either way every five minutes to
   // distribute long-term OLED wear without making the clock visibly wander.
   const int16_t wearShift =
-      static_cast<int16_t>(((hour * 60U + minute) / 5U) % 3U);
-  int16_t x = kOuterMargin + wearShift;
+      static_cast<int16_t>(((hour * 60U + minute) / 5U) % 3U) - 1;
+  int16_t x = (width_ - contentWidth) / 2 + wearShift;
   const uint8_t digits[4] = {
       static_cast<uint8_t>(hour / 10U),
       static_cast<uint8_t>(hour % 10U),
@@ -165,12 +183,12 @@ void Ssd1306DisplayBackend::showTime(const uint8_t hour,
   x += digitWidth + kDigitGap;
   if (colonOn) {
     const int16_t radius = height_ >= 48 ? 2 : 1;
-    display_.fillCircle(x + kColonWidth / 2, height_ / 3, radius,
+    display_.fillCircle(x + colonWidth / 2, height_ / 3, radius,
                         SSD1306_WHITE);
-    display_.fillCircle(x + kColonWidth / 2, (height_ * 2) / 3, radius,
+    display_.fillCircle(x + colonWidth / 2, (height_ * 2) / 3, radius,
                         SSD1306_WHITE);
   }
-  x += kColonWidth;
+  x += colonWidth;
   drawDigit(digits[2], x, y, digitWidth, digitHeight);
   x += digitWidth + kDigitGap;
   drawDigit(digits[3], x, y, digitWidth, digitHeight);

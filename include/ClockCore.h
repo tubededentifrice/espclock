@@ -36,8 +36,7 @@ struct DisplayFrame {
 };
 
 DisplayFrame makeDisplayFrame(uint32_t nowMs, bool hasValidTime,
-                              bool timezoneFresh, bool bleConnected,
-                              UserDisplayState state,
+                              bool timezoneFresh, UserDisplayState state,
                               uint32_t pairingDisplayMs);
 
 class LightLevelController {

@@ -86,6 +86,10 @@
 #define CLOCK_LIGHT_SAMPLE_MS 1000UL
 #endif
 
+#ifndef CLOCK_LIGHT_DIAGNOSTICS
+#define CLOCK_LIGHT_DIAGNOSTICS 0
+#endif
+
 #ifndef CLOCK_PAIRING_DISPLAY_MS
 #define CLOCK_PAIRING_DISPLAY_MS 1500UL
 #endif
@@ -116,6 +120,7 @@ constexpr uint32_t kWifiConnectTimeoutMs = CLOCK_WIFI_CONNECT_TIMEOUT_MS;
 constexpr uint32_t kNtpTimeoutMs = CLOCK_NTP_TIMEOUT_MS;
 constexpr uint32_t kResyncIntervalMs = CLOCK_RESYNC_INTERVAL_MS;
 constexpr uint32_t kLightSampleMs = CLOCK_LIGHT_SAMPLE_MS;
+constexpr bool kLightDiagnostics = CLOCK_LIGHT_DIAGNOSTICS != 0;
 constexpr uint32_t kPairingDisplayMs = CLOCK_PAIRING_DISPLAY_MS;
 constexpr uint8_t kRecoveryButtonPin = CLOCK_RECOVERY_BUTTON_PIN;
 constexpr uint32_t kRecoveryHoldMs = CLOCK_RECOVERY_HOLD_MS;
@@ -140,6 +145,11 @@ static_assert(CLOCK_OLED_ADDRESS > 0 && CLOCK_OLED_ADDRESS <= 0x7F,
 
 static_assert(kFallbackBrightness <= 7,
               "CLOCK_FALLBACK_BRIGHTNESS must be between 0 and 7");
+static_assert(kBh1750Address == 0x23 || kBh1750Address == 0x5C,
+              "CLOCK_BH1750_ADDRESS must be 0x23 or 0x5C");
+static_assert(CLOCK_LIGHT_DIAGNOSTICS == 0 ||
+                  CLOCK_LIGHT_DIAGNOSTICS == 1,
+              "CLOCK_LIGHT_DIAGNOSTICS must be 0 or 1");
 
 #if defined(CONFIG_IDF_TARGET_ESP32)
 constexpr bool classicPinUsesFlash(const uint8_t pin) {

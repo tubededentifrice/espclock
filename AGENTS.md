@@ -15,6 +15,29 @@ Before changing firmware, iOS code, or hardware documentation, read:
 
 Some files may not exist during initial scaffolding. Read them once present.
 
+## Keep guidance current
+
+Treat this file and every repo-local skill used during a task as living
+maintenance artifacts. Without waiting for a prompt, update them in the same
+task when concrete evidence shows that guidance is stale, incorrect,
+contradictory, duplicated, needlessly verbose, or missing a durable lesson.
+This is standing authorization for task-scoped guidance fixes; ask before
+changing product intent or requirements.
+
+Use progressive disclosure:
+
+- keep `AGENTS.md` to repository-wide invariants, mandatory workflow, and
+  pointers;
+- keep each `SKILL.md` to essential procedure and routing;
+- keep detailed facts, rationale, examples, and volatile status in the
+  authoritative project documents or a directly linked skill reference.
+
+Prefer correcting, moving, consolidating, or deleting guidance over appending
+another rule. Keep skill references one hop deep, verify affected links,
+commands, and metadata, and do not broaden the task into speculative cleanup.
+If a used skill is external or read-only, report the needed improvement instead
+of silently working around it.
+
 ## Non-negotiable technical constraints
 
 - Travel-board target: ESP32-C3 Super Mini. The supported solderless bench

@@ -289,13 +289,12 @@ The current firmware stores a validated offset in 15-minute-capable minutes, not
 
 | Display | Meaning |
 |---|---|
-| `HH:MM`, blinking colon | Phone-confirmed local offset this boot |
+| `HH:MM`, one blink per second | Phone-confirmed local offset this boot |
 | `HH MM`, brief colon pulse every two seconds | Valid UTC with a retained, not-yet-confirmed timezone offset |
 | `PAIR` alternating with time | BLE pairing/sync opportunity |
 | `SET` on OLED / `SEt` on TM1637 | No-app phone setup portal is active |
 | `WIFI` / seven-segment approximation | Trying an open network/NTP |
 | `----` | No trustworthy time is available yet |
-| Fast colon pulse | BLE client connected |
 | `RESET` on OLED / `rSt` on TM1637 | BOOT recovery button is being held; keep holding for five seconds, then release |
 
 The pairing message yields to a valid time most of the time; network work never leaves a valid clock blank.
@@ -366,9 +365,20 @@ Open networks are untrusted and often unusable without a browser. The feature is
 The BH1750 is sampled every second. An exponential filter gives roughly a
 several-second response and 20% hysteresis prevents flicker near level
 boundaries. The normalized eight levels map directly to TM1637 brightness and
-to a low-end-weighted SSD1306 contrast table. If the BH1750 is absent or returns
-five invalid samples, the display remains usable at fallback level 2 and the
-sensor is retried every 30 seconds.
+to a visibly separated SSD1306 contrast curve. Because some small OLED modules
+show little perceived change across their contrast range, the SSD1306 backend
+also uses flicker-free spatial dithering from 12.5% pixel coverage at level 0
+to 100% at level 7. A fully covered sensor reading around 0.83 lux settles to
+level 0; the sensor-missing fallback level 2 retains 37.5% coverage. Firmware
+first tries the configured BH1750 address and then the other valid address
+(`0x23`/`0x5C`). If the BH1750 is absent or stops producing valid, ready
+samples, the display remains usable at fallback level 2 and the sensor is
+retried every 30 seconds.
+
+For bench diagnosis, temporarily build the affected profile with
+`CLOCK_LIGHT_DIAGNOSTICS=1` to log each raw and filtered lux sample, selected
+level, and SSD1306 contrast command at 115200 baud. Normal profiles leave these
+periodic diagnostics disabled.
 
 Tune the following in `include/AppConfig.h` or with PlatformIO `-D` flags:
 
@@ -402,9 +412,10 @@ substitute.
 | `.codex/skills/maintain-espclock/` | Repo-local maintenance workflow for coding agents |
 
 External embedded libraries are version-pinned in `platformio.ini`. The
-SSD1306 profiles use the pinned Adafruit SSD1306, GFX, and BusIO libraries; the
-custom geometric digits maximize panel height without a large font asset. Host
-tooling is locked by uv.
+SSD1306 profiles use the pinned Adafruit SSD1306, GFX, and BusIO libraries.
+Their connected-stroke 5×7 numeric glyphs maximize panel height without the
+hard-to-read gaps of a simulated seven-segment display. Host tooling is locked
+by uv.
 
 ## Acceptance checklist
 
@@ -412,7 +423,7 @@ Do not close or pot the case until every applicable physical item passes.
 
 ### Automated
 
-- [x] `uv run pio test -e native` passes (12/12).
+- [x] `uv run pio test -e native` passes (14/14).
 - [x] `uv run pio run -e esp32-devkit-oled-128x64` completes.
 - [x] All six display/board profiles compile in the final verification matrix.
 - [x] No firmware compiler warnings are reported.

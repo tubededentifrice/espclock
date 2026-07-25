@@ -9,6 +9,19 @@ description: Maintain, extend, diagnose, or review the ESPClock firmware, iPhone
 
 Read `AGENTS.md`, `README.md`, `docs/design-review.md`, and `docs/hardware-research.md`. Inspect `git status` before editing. Treat the checked-in pin map, protocol, and safety notes as a single contract across code and documentation.
 
+## Maintain the guidance
+
+Apply `AGENTS.md`'s guidance-maintenance policy to this skill and every other
+repo-local skill used. Without prompting, improve a task-relevant skill when
+using it exposes stale, incorrect, unclear, duplicated, overly long, or missing
+guidance.
+
+Keep this file to essential procedure and routing. Move detailed or volatile
+facts to an authoritative project document or directly linked reference, and
+prefer replacement or consolidation over added rules. Verify affected links,
+commands, frontmatter, and `agents/openai.yaml`; report needed improvements to
+external or read-only skills.
+
 ## Classify the change
 
 - Firmware-only: preserve public protocol and pins; update tests.

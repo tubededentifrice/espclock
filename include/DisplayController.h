@@ -12,7 +12,7 @@ class DisplayController {
  public:
   DisplayController();
   bool begin();
-  void tick(const TimeKeeper& clock, UserDisplayState state, bool bleConnected);
+  void tick(const TimeKeeper& clock, UserDisplayState state);
   bool displayAvailable() const { return displayAvailable_; }
   bool lightSensorAvailable() const { return lightSensorAvailable_; }
   const char* displayName() const { return display_.name(); }
@@ -29,8 +29,10 @@ class DisplayController {
   uint32_t lastLightSampleMs_ = 0;
   uint32_t lastLightSensorAttemptMs_ = 0;
   uint32_t lastDisplayMs_ = 0;
+  uint8_t lightSensorAddress_ = 0;
   bool displayAvailable_ = false;
   bool lightSensorAvailable_ = false;
   uint8_t invalidLightReadings_ = 0;
+  uint8_t unreadyLightReadings_ = 0;
   bool colonOn_ = false;
 };

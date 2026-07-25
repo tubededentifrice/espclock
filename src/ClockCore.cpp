@@ -90,16 +90,14 @@ bool parseTimeSyncPayload(const uint8_t* data, const size_t length,
 DisplayFrame makeDisplayFrame(const uint32_t nowMs,
                               const bool hasValidTime,
                               const bool timezoneFresh,
-                              const bool bleConnected,
                               const UserDisplayState state,
                               const uint32_t pairingDisplayMs) {
   bool colonOn = false;
-  if (bleConnected && hasValidTime && state == UserDisplayState::kClock) {
-    colonOn = ((nowMs / 250U) % 2U) == 0U;
-  } else if (hasValidTime && !timezoneFresh) {
+  if (hasValidTime && !timezoneFresh) {
     colonOn = (nowMs % 2000U) < 250U;
   } else {
-    colonOn = ((nowMs / 1000U) % 2U) == 0U;
+    // A conventional one-Hertz clock cadence: 500 ms on, 500 ms off.
+    colonOn = (nowMs % 1000U) < 500U;
   }
 
   switch (state) {
@@ -150,7 +148,7 @@ uint8_t LightLevelController::update(float lux) {
   }
 
   static constexpr float kBoundaries[7] = {
-      1.0F, 3.0F, 12.0F, 45.0F, 160.0F, 500.0F, 1400.0F};
+      1.2F, 3.0F, 12.0F, 45.0F, 160.0F, 500.0F, 1400.0F};
 
   // A 20% hysteresis band prevents visible flicker near a boundary.
   while (level_ < 7 && filteredLux_ > kBoundaries[level_] * 1.20F) {

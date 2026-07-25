@@ -155,6 +155,6 @@ void loop() {
 
   bleTime.tick(clockTime);
   networkTime.tick();
-  clockDisplay.tick(clockTime, displayState(), bleTime.connected());
+  clockDisplay.tick(clockTime, displayState());
   delay(5);
 }

@@ -1,6 +1,7 @@
 #include <unity.h>
 
 #include "ClockCore.h"
+#include "OledBrightness.h"
 
 void test_epoch_validation() {
   TEST_ASSERT_FALSE(clockcore::isValidEpoch(1704067199LL));
@@ -84,7 +85,7 @@ void test_light_filter_is_smooth_and_bounded() {
   light.update(-1.0F);
   TEST_ASSERT_EQUAL_UINT8(brightLevel, light.level());
   for (int i = 0; i < 100; ++i) {
-    light.update(0.0F);
+    light.update(0.83F);
   }
   TEST_ASSERT_EQUAL_UINT8(0, light.level());
 }
@@ -100,21 +101,47 @@ void test_light_filter_reset_discards_stale_brightness() {
   TEST_ASSERT_EQUAL_UINT8(0, light.update(0.1F));
 }
 
+void test_light_levels_cover_the_full_ambient_range() {
+  constexpr float kRepresentativeLux[8] = {
+      0.83F, 2.0F, 5.0F, 20.0F, 70.0F, 250.0F, 800.0F, 2000.0F};
+  for (uint8_t expectedLevel = 0; expectedLevel < 8; ++expectedLevel) {
+    clockcore::LightLevelController light;
+    TEST_ASSERT_EQUAL_UINT8(
+        expectedLevel, light.update(kRepresentativeLux[expectedLevel]));
+  }
+}
+
+void test_oled_brightness_steps_are_monotonic_and_bounded() {
+  for (uint8_t level = 1; level < oledbrightness::kLevelCount; ++level) {
+    TEST_ASSERT_GREATER_THAN(
+        oledbrightness::contrast(level - 1),
+        oledbrightness::contrast(level));
+    TEST_ASSERT_GREATER_THAN(
+        oledbrightness::ditherThreshold(level - 1),
+        oledbrightness::ditherThreshold(level));
+  }
+  TEST_ASSERT_EQUAL_UINT8(
+      oledbrightness::contrast(7), oledbrightness::contrast(255));
+  TEST_ASSERT_EQUAL_UINT8(
+      oledbrightness::ditherThreshold(7),
+      oledbrightness::ditherThreshold(255));
+}
+
 void test_display_frame_alternates_status_and_valid_time() {
   clockcore::DisplayFrame frame = clockcore::makeDisplayFrame(
-      1000, true, true, false, UserDisplayState::kPairing, 1500);
+      1000, true, true, UserDisplayState::kPairing, 1500);
   TEST_ASSERT_EQUAL_UINT8(
       static_cast<uint8_t>(clockcore::DisplayContent::kPairing),
       static_cast<uint8_t>(frame.content));
 
   frame = clockcore::makeDisplayFrame(
-      2000, true, true, false, UserDisplayState::kPairing, 1500);
+      2000, true, true, UserDisplayState::kPairing, 1500);
   TEST_ASSERT_EQUAL_UINT8(
       static_cast<uint8_t>(clockcore::DisplayContent::kTime),
       static_cast<uint8_t>(frame.content));
 
   frame = clockcore::makeDisplayFrame(
-      2000, false, true, false, UserDisplayState::kPairing, 1500);
+      2000, false, true, UserDisplayState::kPairing, 1500);
   TEST_ASSERT_EQUAL_UINT8(
       static_cast<uint8_t>(clockcore::DisplayContent::kPairing),
       static_cast<uint8_t>(frame.content));
@@ -122,16 +149,22 @@ void test_display_frame_alternates_status_and_valid_time() {
 
 void test_display_frame_colon_signals_sync_quality() {
   clockcore::DisplayFrame frame = clockcore::makeDisplayFrame(
-      250, true, true, true, UserDisplayState::kClock, 1500);
+      250, true, true, UserDisplayState::kClock, 1500);
+  TEST_ASSERT_TRUE(frame.colonOn);
+  frame = clockcore::makeDisplayFrame(
+      500, true, true, UserDisplayState::kClock, 1500);
   TEST_ASSERT_FALSE(frame.colonOn);
   frame = clockcore::makeDisplayFrame(
-      500, true, true, true, UserDisplayState::kClock, 1500);
+      999, true, true, UserDisplayState::kClock, 1500);
+  TEST_ASSERT_FALSE(frame.colonOn);
+  frame = clockcore::makeDisplayFrame(
+      1000, true, true, UserDisplayState::kClock, 1500);
   TEST_ASSERT_TRUE(frame.colonOn);
   frame = clockcore::makeDisplayFrame(
-      100, true, false, false, UserDisplayState::kClock, 1500);
+      100, true, false, UserDisplayState::kClock, 1500);
   TEST_ASSERT_TRUE(frame.colonOn);
   frame = clockcore::makeDisplayFrame(
-      500, true, false, false, UserDisplayState::kClock, 1500);
+      500, true, false, UserDisplayState::kClock, 1500);
   TEST_ASSERT_FALSE(frame.colonOn);
 }
 
@@ -169,6 +202,8 @@ int main(int, char**) {
   RUN_TEST(test_unconfirmed_rtc_allows_first_large_correction);
   RUN_TEST(test_light_filter_is_smooth_and_bounded);
   RUN_TEST(test_light_filter_reset_discards_stale_brightness);
+  RUN_TEST(test_light_levels_cover_the_full_ambient_range);
+  RUN_TEST(test_oled_brightness_steps_are_monotonic_and_bounded);
   RUN_TEST(test_display_frame_alternates_status_and_valid_time);
   RUN_TEST(test_display_frame_colon_signals_sync_quality);
   RUN_TEST(test_bssid_backoff_is_per_radio_not_ssid);
