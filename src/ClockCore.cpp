@@ -1,0 +1,185 @@
+#include "ClockCore.h"
+
+#include <ctype.h>
+#include <stdlib.h>
+#include <string.h>
+
+namespace clockcore {
+
+bool isValidEpoch(const int64_t epoch) {
+  return epoch >= kMinimumValidEpoch && epoch <= kMaximumValidEpoch;
+}
+
+bool isValidUtcOffset(const int offsetMinutes) {
+  return offsetMinutes >= -14 * 60 && offsetMinutes <= 14 * 60;
+}
+
+bool isPlausibleCorrection(const int64_t currentEpoch,
+                           const int64_t candidateEpoch) {
+  if (!isValidEpoch(candidateEpoch)) {
+    return false;
+  }
+  if (!isValidEpoch(currentEpoch)) {
+    return true;
+  }
+  const int64_t difference = candidateEpoch - currentEpoch;
+  return difference >= -300 && difference <= 300;
+}
+
+bool isAcceptableCorrection(const bool hasConfirmedSync,
+                            const int64_t currentEpoch,
+                            const int64_t candidateEpoch) {
+  return isValidEpoch(candidateEpoch) &&
+         (!hasConfirmedSync ||
+          isPlausibleCorrection(currentEpoch, candidateEpoch));
+}
+
+bool parseTimeSyncPayload(const uint8_t* data, const size_t length,
+                          int64_t& epoch, int16_t& utcOffsetMinutes) {
+  if (data == nullptr || length == 0) {
+    return false;
+  }
+
+  if (length == 12 && data[0] == 1) {
+    uint64_t rawEpoch = 0;
+    for (uint8_t i = 0; i < 8; ++i) {
+      rawEpoch |= static_cast<uint64_t>(data[i + 1]) << (8U * i);
+    }
+    const uint16_t rawOffset =
+        static_cast<uint16_t>(data[9]) |
+        (static_cast<uint16_t>(data[10]) << 8U);
+    epoch = static_cast<int64_t>(rawEpoch);
+    utcOffsetMinutes = static_cast<int16_t>(rawOffset);
+    return isValidEpoch(epoch) && isValidUtcOffset(utcOffsetMinutes);
+  }
+
+  if (length >= 48) {
+    return false;
+  }
+  char text[48] = {};
+  for (size_t i = 0; i < length; ++i) {
+    if (data[i] == 0 || (!isprint(data[i]) && !isspace(data[i]))) {
+      return false;
+    }
+    text[i] = static_cast<char>(data[i]);
+  }
+
+  char* separator = nullptr;
+  const long long parsedEpoch = strtoll(text, &separator, 10);
+  if (separator == text || (*separator != ',' && *separator != ' ')) {
+    return false;
+  }
+  while (*separator == ',' || isspace(static_cast<unsigned char>(*separator))) {
+    ++separator;
+  }
+  char* end = nullptr;
+  const long parsedOffset = strtol(separator, &end, 10);
+  while (end != nullptr && isspace(static_cast<unsigned char>(*end))) {
+    ++end;
+  }
+  if (end == separator || (end != nullptr && *end != '\0')) {
+    return false;
+  }
+
+  epoch = parsedEpoch;
+  utcOffsetMinutes = static_cast<int16_t>(parsedOffset);
+  return parsedOffset >= INT16_MIN && parsedOffset <= INT16_MAX &&
+         isValidEpoch(epoch) && isValidUtcOffset(utcOffsetMinutes);
+}
+
+DisplayFrame makeDisplayFrame(const uint32_t nowMs,
+                              const bool hasValidTime,
+                              const bool timezoneFresh,
+                              const bool bleConnected,
+                              const UserDisplayState state,
+                              const uint32_t pairingDisplayMs) {
+  bool colonOn = false;
+  if (bleConnected && hasValidTime && state == UserDisplayState::kClock) {
+    colonOn = ((nowMs / 250U) % 2U) == 0U;
+  } else if (hasValidTime && !timezoneFresh) {
+    colonOn = (nowMs % 2000U) < 250U;
+  } else {
+    colonOn = ((nowMs / 1000U) % 2U) == 0U;
+  }
+
+  switch (state) {
+    case UserDisplayState::kPairing:
+      return {hasValidTime && (nowMs % 4000U) >= pairingDisplayMs
+                  ? DisplayContent::kTime
+                  : DisplayContent::kPairing,
+              colonOn};
+    case UserDisplayState::kPortal:
+      return {hasValidTime && (nowMs % 4000U) >= pairingDisplayMs
+                  ? DisplayContent::kTime
+                  : DisplayContent::kPortal,
+              colonOn};
+    case UserDisplayState::kWifi:
+      return {hasValidTime && (nowMs % 6000U) >= 1000U
+                  ? DisplayContent::kTime
+                  : DisplayContent::kWifi,
+              colonOn};
+    case UserDisplayState::kNoTime:
+      return {DisplayContent::kNoTime, colonOn};
+    case UserDisplayState::kRecovery:
+      return {DisplayContent::kRecovery, colonOn};
+    case UserDisplayState::kClock:
+    default:
+      return {DisplayContent::kTime, colonOn};
+  }
+}
+
+LightLevelController::LightLevelController()
+    : filteredLux_(0.0F), initialized_(false), level_(0) {}
+
+void LightLevelController::reset() {
+  filteredLux_ = 0.0F;
+  initialized_ = false;
+  level_ = 0;
+}
+
+uint8_t LightLevelController::update(float lux) {
+  if (!(lux >= 0.0F) || lux > 100000.0F) {
+    return level_;
+  }
+  if (!initialized_) {
+    filteredLux_ = lux;
+    initialized_ = true;
+  } else {
+    // About a six-second settling time at one sample per second.
+    filteredLux_ += 0.18F * (lux - filteredLux_);
+  }
+
+  static constexpr float kBoundaries[7] = {
+      1.0F, 3.0F, 12.0F, 45.0F, 160.0F, 500.0F, 1400.0F};
+
+  // A 20% hysteresis band prevents visible flicker near a boundary.
+  while (level_ < 7 && filteredLux_ > kBoundaries[level_] * 1.20F) {
+    ++level_;
+  }
+  while (level_ > 0 && filteredLux_ < kBoundaries[level_ - 1] * 0.80F) {
+    --level_;
+  }
+  return level_;
+}
+
+bool BssidAttemptTracker::contains(const uint8_t bssid[6]) const {
+  if (bssid == nullptr) {
+    return false;
+  }
+  for (uint8_t i = 0; i < size_; ++i) {
+    if (memcmp(entries_[i], bssid, 6) == 0) {
+      return true;
+    }
+  }
+  return false;
+}
+
+bool BssidAttemptTracker::add(const uint8_t bssid[6]) {
+  if (bssid == nullptr || contains(bssid) || size_ >= kCapacity) {
+    return false;
+  }
+  memcpy(entries_[size_++], bssid, 6);
+  return true;
+}
+
+}  // namespace clockcore

@@ -1,0 +1,382 @@
+#include "NetworkTimeService.h"
+
+#include <Arduino.h>
+#include <esp_system.h>
+#include <esp_sntp.h>
+#include <esp_wifi.h>
+
+#include "AppConfig.h"
+#include "ClockCore.h"
+
+NetworkTimeService* NetworkTimeService::instance_ = nullptr;
+volatile bool NetworkTimeService::ntpSynced_ = false;
+
+namespace {
+constexpr uint16_t kDnsPort = 53;
+constexpr uint8_t kPortalWifiChannel = 1;
+constexpr uint8_t kMaximumPortalStartAttempts = 3;
+constexpr uint32_t kPortalStartRetryMs = 2000UL;
+constexpr char kNtpServer1[] = "time.cloudflare.com";
+constexpr char kNtpServer2[] = "pool.ntp.org";
+constexpr char kPortalHtml[] PROGMEM = R"HTML(
+<!doctype html><html><head><meta name="viewport" content="width=device-width">
+<title>Kids Clock</title><style>
+body{font:18px system-ui,sans-serif;max-width:32rem;margin:3rem auto;padding:1rem;
+background:#101418;color:#f4f5f6;text-align:center}button{font:inherit;padding:.8rem 1.3rem}
+#s{margin-top:1.5rem}</style></head><body>
+<h1>Set the clock</h1><p>This sends only the current time and time-zone offset.</p>
+<button onclick="setTime()">Set time now</button><p id="s">Waiting...</p>
+<script>
+async function setTime(){let s=document.querySelector('#s');s.textContent='Setting...';
+let b='epoch='+Math.floor(Date.now()/1000)+'&offset='+(-new Date().getTimezoneOffset());
+try{let r=await fetch('/set-time',{method:'POST',headers:
+{'Content-Type':'application/x-www-form-urlencoded'},body:b});
+s.textContent=r.ok?'Done. You can close this page.':'Could not set the time.'}
+catch(e){s.textContent='Connection lost. Check the clock display and retry if needed.'}}
+setTime();
+</script></body></html>)HTML";
+
+bool deadlineReached(const uint32_t now, const uint32_t deadline) {
+  return static_cast<int32_t>(now - deadline) >= 0;
+}
+}  // namespace
+
+NetworkTimeService::NetworkTimeService() : web_(80) {}
+
+void NetworkTimeService::begin(const TimeUpdateHandler handler,
+                               const int16_t utcOffsetMinutes,
+                               const bool hasConfirmedSync) {
+  handler_ = handler;
+  utcOffsetMinutes_ = utcOffsetMinutes;
+  hasConfirmedSync_ = hasConfirmedSync;
+  instance_ = this;
+  mode_ = Mode::kWaitingForBle;
+  modeStartedMs_ = millis();
+  nextAttemptMs_ = modeStartedMs_ + config::kBleWindowMs;
+
+  web_.on("/", HTTP_GET, [this]() { handlePortalRoot(); });
+  web_.on("/set-time", HTTP_POST, [this]() { handlePortalTime(); });
+  web_.onNotFound([this]() { handlePortalRoot(); });
+}
+
+bool NetworkTimeService::wifiBusy() const {
+  return mode_ == Mode::kScanning || mode_ == Mode::kConnecting ||
+         mode_ == Mode::kWaitingForNtp;
+}
+
+void NetworkTimeService::startPortal() {
+  char ssid[24] = {};
+  snprintf(ssid, sizeof(ssid), "KidsClock-%04X",
+           static_cast<unsigned>(ESP.getEfuseMac() & 0xFFFFU));
+  ++portalStartAttempts_;
+  const bool modeStarted = WiFi.mode(WIFI_AP);
+  const bool accessPointStarted =
+      modeStarted &&
+      WiFi.softAP(ssid, nullptr, kPortalWifiChannel, false, 4);
+  if (!accessPointStarted) {
+    Serial.printf(
+        "[WiFi] portal start=failed attempt=%u/%u mode=%s ssid=%s\n",
+        portalStartAttempts_, kMaximumPortalStartAttempts,
+        modeStarted ? "ok" : "failed", ssid);
+    WiFi.softAPdisconnect(true);
+    mode_ = Mode::kWaitingForBle;
+    modeStartedMs_ = millis();
+    if (portalStartAttempts_ < kMaximumPortalStartAttempts) {
+      nextAttemptMs_ = modeStartedMs_ + kPortalStartRetryMs;
+    } else {
+      portalWasOffered_ = true;
+      startScan();
+    }
+    return;
+  }
+  const IPAddress ip = WiFi.softAPIP();
+  const bool dnsStarted = dns_.start(kDnsPort, "*", ip);
+  web_.begin();
+  mode_ = Mode::kPortal;
+  modeStartedMs_ = millis();
+  portalWasOffered_ = true;
+  portalStartAttempts_ = 0;
+  Serial.printf(
+      "[WiFi] portal start=ok ssid=%s channel=%u ip=%s dns=%s "
+      "window_ms=%lu\n",
+      ssid, kPortalWifiChannel, ip.toString().c_str(),
+      dnsStarted ? "ok" : "failed",
+      static_cast<unsigned long>(config::kPortalWindowMs));
+}
+
+void NetworkTimeService::stopPortal() {
+  dns_.stop();
+  web_.stop();
+  const bool stopped = WiFi.softAPdisconnect(true);
+  Serial.printf("[WiFi] portal stop=%s\n", stopped ? "ok" : "failed");
+}
+
+void NetworkTimeService::handlePortalRoot() {
+  web_.sendHeader("Cache-Control", "no-store");
+  web_.send(200, "text/html", FPSTR(kPortalHtml));
+}
+
+void NetworkTimeService::handlePortalTime() {
+  if (portalAccepted_) {
+    web_.send(409, "text/plain", "Time already submitted");
+    return;
+  }
+  if (web_.clientContentLength() > 64) {
+    web_.send(413, "text/plain", "Request too large");
+    return;
+  }
+  if (!web_.hasArg("epoch") || !web_.hasArg("offset")) {
+    web_.send(400, "text/plain", "Missing epoch or offset");
+    return;
+  }
+  if (web_.arg("epoch").length() > 20 || web_.arg("offset").length() > 6) {
+    web_.send(413, "text/plain", "Request too large");
+    return;
+  }
+  String payload;
+  payload.reserve(web_.arg("epoch").length() + web_.arg("offset").length() + 2);
+  payload = web_.arg("epoch");
+  payload += ',';
+  payload += web_.arg("offset");
+  int64_t epoch = 0;
+  int16_t offset = 0;
+  if (!clockcore::parseTimeSyncPayload(
+          reinterpret_cast<const uint8_t*>(payload.c_str()), payload.length(),
+          epoch, offset) ||
+      !clockcore::isAcceptableCorrection(
+          hasConfirmedSync_, static_cast<int64_t>(time(nullptr)), epoch)) {
+    web_.send(400, "text/plain", "Invalid time");
+    return;
+  }
+  utcOffsetMinutes_ = offset;
+  if (handler_ != nullptr) {
+    handler_({epoch, utcOffsetMinutes_, TimeSource::kPortal});
+  }
+  portalAccepted_ = true;
+  web_.send(200, "text/plain", "Clock set");
+  // Give the captive browser time to receive the successful response.
+  portalStopAtMs_ = millis() + 1500UL;
+}
+
+void NetworkTimeService::startScan() {
+#if CLOCK_ENABLE_OPEN_WIFI_FALLBACK
+  const uint32_t now = millis();
+  if (wifiExhaustedForBoot_) {
+    mode_ = Mode::kIdle;
+    nextAttemptMs_ = now + config::kResyncIntervalMs;
+    return;
+  }
+  if (mode_ == Mode::kIdle || mode_ == Mode::kWaitingForBle ||
+      mode_ == Mode::kPortal) {
+    wifiWindowStartedMs_ = now;
+    wifiAttemptsThisWindow_ = 0;
+  } else if (wifiAttemptsThisWindow_ >=
+                 config::kMaximumWifiAttemptsPerWindow ||
+             now - wifiWindowStartedMs_ >= config::kWifiWindowMs) {
+    scheduleNextAttempt();
+    return;
+  }
+  if (mode_ == Mode::kPortal) {
+    stopPortal();
+  }
+  WiFi.mode(WIFI_STA);
+  if (!stationMacRandomized_) {
+    uint8_t address[6] = {};
+    esp_fill_random(address, sizeof(address));
+    address[0] = (address[0] | 0x02U) & 0xFEU;
+    if (esp_wifi_set_mac(WIFI_IF_STA, address) == ESP_OK) {
+      stationMacRandomized_ = true;
+    }
+  }
+  WiFi.persistent(false);
+  WiFi.setAutoReconnect(false);
+  WiFi.disconnect(false, true);
+  WiFi.scanDelete();
+  const int result = WiFi.scanNetworks(true, true);
+  mode_ = Mode::kScanning;
+  modeStartedMs_ = millis();
+  if (result >= 0) {
+    processScan(result);
+  }
+#else
+  scheduleNextAttempt();
+#endif
+}
+
+bool NetworkTimeService::wasFailed(const uint8_t bssid[6]) const {
+  return failedBssids_.contains(bssid);
+}
+
+void NetworkTimeService::rememberFailure(const uint8_t bssid[6]) {
+  if (!failedBssids_.contains(bssid) && !failedBssids_.add(bssid)) {
+    wifiExhaustedForBoot_ = true;
+  }
+}
+
+void NetworkTimeService::processScan(const int count) {
+  candidateReady_ = false;
+  candidate_.rssi = -127;
+  for (int i = 0; i < count; ++i) {
+    if (WiFi.encryptionType(i) != WIFI_AUTH_OPEN) {
+      continue;
+    }
+    const String ssid = WiFi.SSID(i);
+    const uint8_t* bssid = WiFi.BSSID(i);
+    if (ssid.isEmpty() || bssid == nullptr || wasFailed(bssid) ||
+        WiFi.RSSI(i) <= candidate_.rssi) {
+      continue;
+    }
+    candidate_.ssid = ssid;
+    candidate_.channel = WiFi.channel(i);
+    candidate_.rssi = WiFi.RSSI(i);
+    memcpy(candidate_.bssid, WiFi.BSSID(i), sizeof(candidate_.bssid));
+    candidateReady_ = true;
+  }
+  WiFi.scanDelete();
+  if (candidateReady_) {
+    connectCandidate();
+  } else {
+    scheduleNextAttempt();
+  }
+}
+
+bool NetworkTimeService::selectNextCandidate() {
+  // A fresh scan is used after each failure. Failed BSSIDs remain excluded for
+  // the entire boot, satisfying the backoff rule without keeping scan records.
+  startScan();
+  return true;
+}
+
+void NetworkTimeService::connectCandidate() {
+  ++wifiAttemptsThisWindow_;
+  WiFi.begin(candidate_.ssid.c_str(), nullptr, candidate_.channel,
+             candidate_.bssid, true);
+  mode_ = Mode::kConnecting;
+  modeStartedMs_ = millis();
+}
+
+void NetworkTimeService::startNtp() {
+  ntpSynced_ = false;
+  ntpBaselineEpoch_ = static_cast<int64_t>(time(nullptr));
+  ntpBaselineMs_ = millis();
+  sntp_set_time_sync_notification_cb(ntpCallback);
+  configTime(0, 0, kNtpServer1, kNtpServer2);
+  mode_ = Mode::kWaitingForNtp;
+  modeStartedMs_ = millis();
+}
+
+void NetworkTimeService::ntpCallback(struct timeval*) {
+  ntpSynced_ = true;
+}
+
+void NetworkTimeService::finishNtp(const bool success) {
+  bool accepted = success;
+  const int64_t candidateEpoch = static_cast<int64_t>(time(nullptr));
+  const int64_t expectedEpoch =
+      ntpBaselineEpoch_ +
+      static_cast<int64_t>((millis() - ntpBaselineMs_) / 1000UL);
+  if (accepted && hasConfirmedSync_ &&
+      !clockcore::isPlausibleCorrection(expectedEpoch, candidateEpoch)) {
+    const timeval restore = {static_cast<time_t>(expectedEpoch), 0};
+    settimeofday(&restore, nullptr);
+    accepted = false;
+  }
+  esp_sntp_stop();
+  ntpSynced_ = false;
+  if (accepted && handler_ != nullptr) {
+    handler_({candidateEpoch, utcOffsetMinutes_,
+              TimeSource::kNtp});
+  } else {
+    rememberFailure(candidate_.bssid);
+  }
+  WiFi.disconnect(true, false);
+  if (accepted) {
+    scheduleNextAttempt();
+  } else {
+    selectNextCandidate();
+  }
+}
+
+void NetworkTimeService::scheduleNextAttempt() {
+  if (mode_ == Mode::kWaitingForNtp) {
+    esp_sntp_stop();
+    ntpSynced_ = false;
+  }
+  if (mode_ == Mode::kPortal) {
+    stopPortal();
+  }
+  if (WiFi.getMode() != WIFI_MODE_NULL) {
+    WiFi.disconnect(true, false);
+  }
+  mode_ = Mode::kIdle;
+  nextAttemptMs_ = millis() + config::kResyncIntervalMs;
+}
+
+void NetworkTimeService::onExternalTimeSync(
+    const int16_t utcOffsetMinutes) {
+  utcOffsetMinutes_ = utcOffsetMinutes;
+  hasConfirmedSync_ = true;
+  if (mode_ == Mode::kPortal) {
+    portalStopAtMs_ = millis() + 1500UL;
+  } else {
+    // BLE or the local portal is a higher-priority timezone-aware source.
+    // Abort any lower-trust opportunistic network attempt immediately.
+    scheduleNextAttempt();
+  }
+}
+
+void NetworkTimeService::tick() {
+  const uint32_t now = millis();
+  switch (mode_) {
+    case Mode::kWaitingForBle:
+      if (deadlineReached(now, nextAttemptMs_)) {
+        if (!portalWasOffered_) {
+          startPortal();
+        } else {
+          startScan();
+        }
+      }
+      break;
+    case Mode::kPortal:
+      dns_.processNextRequest();
+      web_.handleClient();
+      if (portalStopAtMs_ != 0 && deadlineReached(now, portalStopAtMs_)) {
+        portalStopAtMs_ = 0;
+        scheduleNextAttempt();
+      } else if (now - modeStartedMs_ >= config::kPortalWindowMs) {
+        startScan();
+      }
+      break;
+    case Mode::kScanning: {
+      const int result = WiFi.scanComplete();
+      if (result >= 0) {
+        processScan(result);
+      } else if (result == WIFI_SCAN_FAILED ||
+                 now - modeStartedMs_ >= 15000UL) {
+        scheduleNextAttempt();
+      }
+      break;
+    }
+    case Mode::kConnecting:
+      if (WiFi.status() == WL_CONNECTED) {
+        startNtp();
+      } else if (now - modeStartedMs_ >= config::kWifiConnectTimeoutMs) {
+        rememberFailure(candidate_.bssid);
+        selectNextCandidate();
+      }
+      break;
+    case Mode::kWaitingForNtp:
+      if (ntpSynced_) {
+        ntpSynced_ = false;
+        finishNtp(true);
+      } else if (now - modeStartedMs_ >= config::kNtpTimeoutMs) {
+        finishNtp(false);
+      }
+      break;
+    case Mode::kIdle:
+      if (deadlineReached(now, nextAttemptMs_)) {
+        startScan();
+      }
+      break;
+  }
+}

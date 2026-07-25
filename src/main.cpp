@@ -1,0 +1,160 @@
+#include <Arduino.h>
+#include <Wire.h>
+#include <freertos/FreeRTOS.h>
+
+#include "AppConfig.h"
+#include "BleTimeService.h"
+#include "DisplayController.h"
+#include "NetworkTimeService.h"
+#include "TimeKeeper.h"
+
+namespace {
+TimeKeeper clockTime;
+DisplayController clockDisplay;
+BleTimeService bleTime;
+NetworkTimeService networkTime;
+portMUX_TYPE timeUpdateMux = portMUX_INITIALIZER_UNLOCKED;
+TimeUpdate pendingTimeUpdate = {};
+bool timeUpdatePending = false;
+bool recoveryButtonHeld = false;
+bool recoveryResetArmed = false;
+uint32_t recoveryButtonPressedMs = 0;
+
+uint8_t sourcePriority(const TimeSource source) {
+  switch (source) {
+    case TimeSource::kBle:
+      return 3;
+    case TimeSource::kPortal:
+      return 2;
+    case TimeSource::kNtp:
+      return 1;
+    case TimeSource::kRtc:
+    default:
+      return 0;
+  }
+}
+
+void enqueueTimeUpdate(const TimeUpdate& update) {
+  portENTER_CRITICAL(&timeUpdateMux);
+  if (!timeUpdatePending ||
+      sourcePriority(update.source) >=
+          sourcePriority(pendingTimeUpdate.source)) {
+    pendingTimeUpdate = update;
+    timeUpdatePending = true;
+  }
+  portEXIT_CRITICAL(&timeUpdateMux);
+}
+
+bool dequeueTimeUpdate(TimeUpdate& update) {
+  bool available = false;
+  portENTER_CRITICAL(&timeUpdateMux);
+  if (timeUpdatePending) {
+    update = pendingTimeUpdate;
+    timeUpdatePending = false;
+    available = true;
+  }
+  portEXIT_CRITICAL(&timeUpdateMux);
+  return available;
+}
+
+void handleRecoveryButton() {
+  const uint32_t now = millis();
+  const bool pressed = digitalRead(config::kRecoveryButtonPin) == LOW;
+  if (pressed) {
+    if (!recoveryButtonHeld) {
+      recoveryButtonHeld = true;
+      recoveryButtonPressedMs = now;
+    } else if (!recoveryResetArmed &&
+               now - recoveryButtonPressedMs >= config::kRecoveryHoldMs) {
+      recoveryResetArmed = true;
+      Serial.println(
+          "Recovery armed; release BOOT to clear sync trust and BLE bonds");
+    }
+    return;
+  }
+
+  if (recoveryResetArmed) {
+    clockTime.clearSyncTrust();
+    bleTime.clearBonds();
+    Serial.println("Recovery complete; restarting");
+    delay(100);
+    ESP.restart();
+  }
+  recoveryButtonHeld = false;
+  recoveryResetArmed = false;
+}
+
+UserDisplayState displayState() {
+  if (recoveryButtonHeld) {
+    return UserDisplayState::kRecovery;
+  }
+  if (networkTime.portalActive()) {
+    return UserDisplayState::kPortal;
+  }
+  if (networkTime.wifiBusy()) {
+    return UserDisplayState::kWifi;
+  }
+  if (!clockTime.hasValidTime()) {
+    if (bleTime.advertising() && bleTime.pairingOpen()) {
+      return UserDisplayState::kPairing;
+    }
+    return UserDisplayState::kNoTime;
+  }
+  if (bleTime.pairingOpen() && bleTime.advertising()) {
+    return UserDisplayState::kPairing;
+  }
+  return UserDisplayState::kClock;
+}
+}  // namespace
+
+void setup() {
+  Serial.begin(115200);
+  delay(100);
+  pinMode(config::kRecoveryButtonPin, INPUT_PULLUP);
+  Wire.begin(config::kI2cSdaPin, config::kI2cSclPin);
+
+  clockTime.begin();
+  clockDisplay.begin();
+  bleTime.begin(enqueueTimeUpdate, clockTime.hasConfirmedSync());
+  networkTime.begin(enqueueTimeUpdate, clockTime.utcOffsetMinutes(),
+                    clockTime.hasConfirmedSync());
+
+  Serial.printf(
+      "Kids Clock boot: display=%s/%s, light=%s, RTC=%s, time=%s, "
+      "offset=%d min\n",
+                clockDisplay.displayName(),
+                clockDisplay.displayAvailable() ? "ready" : "missing",
+                clockDisplay.lightSensorAvailable() ? "ready" : "missing",
+                clockTime.rtcAvailable() ? "present" : "missing",
+                clockTime.hasValidTime() ? "valid" : "needed",
+                clockTime.utcOffsetMinutes());
+#if CLOCK_DISPLAY_DRIVER == CLOCK_DISPLAY_SSD1306
+  Serial.printf("OLED configured at I2C address 0x%02X (%dx%d)\n",
+                config::kOledAddress, CLOCK_OLED_WIDTH, CLOCK_OLED_HEIGHT);
+#endif
+}
+
+void loop() {
+  handleRecoveryButton();
+
+  TimeUpdate update = {};
+  if (dequeueTimeUpdate(update)) {
+    const bool applied = clockTime.apply(update);
+    if (update.source == TimeSource::kBle) {
+      bleTime.reportTimeResult(applied);
+    }
+    if (applied) {
+      bleTime.markTimeConfirmed();
+      networkTime.onExternalTimeSync(update.utcOffsetMinutes);
+      Serial.printf("Time synchronized: source=%u epoch=%lld offset=%d\n",
+                    static_cast<unsigned>(update.source),
+                    static_cast<long long>(update.unixUtc),
+                    update.utcOffsetMinutes);
+    }
+  }
+
+  bleTime.tick(clockTime);
+  networkTime.tick();
+  clockDisplay.tick(clockTime, displayState(), bleTime.connected());
+  delay(5);
+}

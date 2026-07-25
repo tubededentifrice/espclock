@@ -1,0 +1,103 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="720" viewBox="0 0 1120 720">
+  <defs>
+    <pattern id="holes" width="20" height="20" patternUnits="userSpaceOnUse">
+      <circle cx="10" cy="10" r="2.3" fill="#aeb7bf"/>
+    </pattern>
+    <style>
+      .title{font:700 24px system-ui,sans-serif;fill:#13212c}
+      .label{font:600 15px system-ui,sans-serif;fill:#13212c}
+      .small{font:13px system-ui,sans-serif;fill:#334550}
+      .board{fill:#e8d7a7;stroke:#715d2a;stroke-width:3}
+      .module{fill:#eef3f6;stroke:#263844;stroke-width:2}
+      .danger{fill:#fff2f0;stroke:#bb2c2c;stroke-width:2}
+      .p3{stroke:#e63946;stroke-width:5;fill:none}
+      .gnd{stroke:#20262a;stroke-width:5;fill:none}
+      .clk{stroke:#ef9b0f;stroke-width:4;fill:none}
+      .dio{stroke:#7a4ce0;stroke-width:4;fill:none}
+      .sda{stroke:#198754;stroke-width:4;fill:none}
+      .scl{stroke:#168aad;stroke-width:4;fill:none}
+      .dash{stroke-dasharray:8 7}
+    </style>
+  </defs>
+
+  <text x="45" y="44" class="title">ESPClock perfboard placement — component side</text>
+  <text x="45" y="68" class="small">Routing guide, not 1:1 artwork. Verify the pin labels on the exact C3 Super Mini before soldering.</text>
+
+  <rect x="45" y="100" width="700" height="550" rx="8" class="board"/>
+  <rect x="45" y="100" width="700" height="550" rx="8" fill="url(#holes)" opacity=".7"/>
+
+  <rect x="95" y="170" width="215" height="310" rx="10" class="module"/>
+  <text x="125" y="205" class="label">ESP32-C3 Super Mini</text>
+  <rect x="70" y="275" width="55" height="100" rx="6" fill="#b7c7d1" stroke="#263844" stroke-width="2"/>
+  <text x="78" y="330" transform="rotate(-90 78 330)" class="small">USB-C</text>
+  <rect x="245" y="190" width="50" height="95" rx="8" fill="#d9f1e2" stroke="#198754" stroke-width="2"/>
+  <text x="253" y="235" transform="rotate(-90 253 235)" class="small">ANTENNA</text>
+  <rect x="230" y="160" width="95" height="145" rx="8" fill="none" stroke="#bb2c2c" stroke-width="3" stroke-dasharray="7 6"/>
+  <text x="240" y="322" class="small" fill="#bb2c2c">KEEP CLEAR</text>
+
+  <circle cx="300" cy="355" r="6" fill="#e63946"/><text x="245" y="360" class="small">3V3</text>
+  <circle cx="300" cy="390" r="6" fill="#20262a"/><text x="255" y="395" class="small">GND</text>
+  <circle cx="300" cy="425" r="6" fill="#ef9b0f"/><text x="245" y="430" class="small">GPIO4</text>
+  <circle cx="300" cy="460" r="6" fill="#7a4ce0"/><text x="245" y="465" class="small">GPIO3</text>
+  <circle cx="105" cy="420" r="6" fill="#198754"/><text x="115" y="425" class="small">GPIO6</text>
+  <circle cx="105" cy="455" r="6" fill="#168aad"/><text x="115" y="460" class="small">GPIO7</text>
+
+  <rect x="410" y="160" width="245" height="180" rx="10" class="module"/>
+  <text x="470" y="192" class="label">DS3231 RTC</text>
+  <circle cx="555" cy="260" r="55" fill="#c5c9c9" stroke="#4d5558" stroke-width="3"/>
+  <text x="525" y="266" class="label">CR2032</text>
+  <rect x="425" y="205" width="88" height="55" rx="6" class="danger"/>
+  <text x="433" y="226" class="small">Remove/check</text>
+  <text x="443" y="245" class="small">charge path</text>
+  <circle cx="430" cy="305" r="6" fill="#e63946"/><text x="440" y="310" class="small">VCC</text>
+  <circle cx="485" cy="305" r="6" fill="#20262a"/><text x="495" y="310" class="small">GND</text>
+  <circle cx="550" cy="305" r="6" fill="#198754"/><text x="560" y="310" class="small">SDA</text>
+  <circle cx="610" cy="305" r="6" fill="#168aad"/><text x="620" y="310" class="small">SCL</text>
+
+  <rect x="425" y="430" width="170" height="105" rx="10" class="module"/>
+  <text x="463" y="460" class="label">BH1750</text>
+  <circle cx="510" cy="490" r="14" fill="#d7eef9" stroke="#168aad" stroke-width="2"/>
+  <text x="450" y="520" class="small">Face sensor aperture</text>
+
+  <rect x="630" y="430" width="80" height="105" rx="10" class="module"/>
+  <text x="648" y="458" class="label">100 µF</text>
+  <line x1="650" y1="490" x2="690" y2="490" stroke="#263844" stroke-width="3"/>
+  <line x1="660" y1="505" x2="680" y2="505" stroke="#263844" stroke-width="3"/>
+  <text x="642" y="527" class="small">+ to 3V3</text>
+
+  <path d="M300 355 H380 V305 H430" class="p3"/>
+  <path d="M380 355 V482 H425" class="p3"/>
+  <path d="M380 482 H650" class="p3"/>
+  <path d="M300 390 H395 V325 H485" class="gnd"/>
+  <path d="M395 390 V510 H425" class="gnd"/>
+  <path d="M395 510 H670" class="gnd"/>
+  <path d="M105 420 H360 V375 H550 V305" class="sda"/>
+  <path d="M360 375 V470 H425" class="sda"/>
+  <path d="M105 455 H345 V395 H610 V305" class="scl"/>
+  <path d="M345 395 V495 H425" class="scl"/>
+
+  <rect x="805" y="150" width="270" height="245" rx="12" class="module"/>
+  <text x="850" y="186" class="label">1.2-inch red TM1637</text>
+  <rect x="835" y="215" width="210" height="100" rx="8" fill="#311" stroke="#111" stroke-width="3"/>
+  <text x="857" y="280" style="font:700 56px monospace;fill:#ec3030">12:34</text>
+  <circle cx="845" cy="355" r="6" fill="#e63946"/><text x="855" y="360" class="small">VCC</text>
+  <circle cx="905" cy="355" r="6" fill="#20262a"/><text x="915" y="360" class="small">GND</text>
+  <circle cx="965" cy="355" r="6" fill="#ef9b0f"/><text x="975" y="360" class="small">CLK</text>
+  <circle cx="1025" cy="355" r="6" fill="#7a4ce0"/><text x="1035" y="360" class="small">DIO</text>
+
+  <path d="M710 482 H770 V355 H845" class="p3 dash"/>
+  <path d="M670 510 H785 V380 H905 V355" class="gnd dash"/>
+  <path d="M300 425 H760 V405 H965 V355" class="clk dash"/>
+  <path d="M300 460 H745 V420 H1025 V355" class="dio dash"/>
+
+  <text x="805" y="455" class="label">Wire colour key</text>
+  <line x1="805" y1="480" x2="855" y2="480" class="p3"/><text x="865" y="485" class="small">3.3 V</text>
+  <line x1="805" y1="510" x2="855" y2="510" class="gnd"/><text x="865" y="515" class="small">Ground</text>
+  <line x1="805" y1="540" x2="855" y2="540" class="clk"/><text x="865" y="545" class="small">TM1637 CLK / GPIO4</text>
+  <line x1="805" y1="570" x2="855" y2="570" class="dio"/><text x="865" y="575" class="small">TM1637 DIO / GPIO3</text>
+  <line x1="805" y1="600" x2="855" y2="600" class="sda"/><text x="865" y="605" class="small">I2C SDA / GPIO6</text>
+  <line x1="805" y1="630" x2="855" y2="630" class="scl"/><text x="865" y="635" class="small">I2C SCL / GPIO7</text>
+
+  <text x="45" y="686" class="small">Mount the display off-board at the case front. Dashed lines are a four-wire harness with strain relief.</text>
+</svg>
+

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Maintain ESPClock"
+  short_description: "Safely build and validate ESPClock firmware"
+  default_prompt: "Use $maintain-espclock to implement and validate this ESPClock change."

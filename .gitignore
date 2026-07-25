@@ -1,0 +1,46 @@
+# PlatformIO
+.pio/
+.platformio/
+.pioenvs/
+.piolibdeps/
+.cache/
+
+# Editors and operating systems
+.DS_Store
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+*.swp
+*~
+
+# Build products and logs
+build/
+dist/
+*.bin
+*.elf
+*.hex
+*.map
+*.log
+
+# Xcode / iOS
+DerivedData/
+xcuserdata/
+*.xcuserstate
+*.ipa
+*.dSYM/
+*.dSYM.zip
+
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+include/secrets.h
+src/secrets.h
+
+# Python tooling used by development scripts
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
