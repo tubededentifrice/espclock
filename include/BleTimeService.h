@@ -3,6 +3,7 @@
 #include <NimBLEDevice.h>
 #include <atomic>
 
+#include "AppConfig.h"
 #include "ClockTypes.h"
 
 class TimeKeeper;
@@ -48,12 +49,16 @@ class BleTimeService {
   std::atomic<uint32_t> lastAcceptedWriteMs_{0};
   uint32_t bootStartedMs_ = 0;
   uint32_t lastAdvertisingRecoveryMs_ = 0;
+#if CLOCK_ENABLE_DIAGNOSTICS
   uint32_t lastPolicyRejectionLogMs_ = 0;
   uint16_t suppressedPolicyRejections_ = 0;
+#endif
   uint8_t advertisingRecoveryAttempts_ = 0;
   bool pairingWindowStatusLogged_ = false;
   std::atomic_bool slowAdvertisingConfigured_{false};
+#if CLOCK_ENABLE_DIAGNOSTICS
   bool policyRejectionLogged_ = false;
+#endif
   bool policyDisconnectPending_ = false;
   std::atomic_bool timeWritePending_{false};
   std::atomic_bool activeConnectionBonded_{false};

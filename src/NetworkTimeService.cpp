@@ -8,6 +8,7 @@
 
 #include "AppConfig.h"
 #include "ClockCore.h"
+#include "Diagnostics.h"
 
 NetworkTimeService* NetworkTimeService::instance_ = nullptr;
 volatile bool NetworkTimeService::ntpSynced_ = false;
@@ -78,7 +79,7 @@ void NetworkTimeService::startPortal() {
       modeStarted &&
       WiFi.softAP(ssid, nullptr, kPortalWifiChannel, false, 4);
   if (!accessPointStarted) {
-    Serial.printf(
+    CLOCK_DIAGNOSTIC_PRINTF(
         "[WiFi] portal start=failed attempt=%u/%u mode=%s ssid=%s\n",
         portalStartAttempts_, kMaximumPortalStartAttempts,
         modeStarted ? "ok" : "failed", ssid);
@@ -100,7 +101,7 @@ void NetworkTimeService::startPortal() {
   modeStartedMs_ = millis();
   portalWasOffered_ = true;
   portalStartAttempts_ = 0;
-  Serial.printf(
+  CLOCK_DIAGNOSTIC_PRINTF(
       "[WiFi] portal start=ok ssid=%s channel=%u ip=%s dns=%s "
       "window_ms=%lu\n",
       ssid, kPortalWifiChannel, ip.toString().c_str(),
@@ -112,7 +113,8 @@ void NetworkTimeService::stopPortal() {
   dns_.stop();
   web_.stop();
   const bool stopped = WiFi.softAPdisconnect(true);
-  Serial.printf("[WiFi] portal stop=%s\n", stopped ? "ok" : "failed");
+  CLOCK_DIAGNOSTIC_PRINTF("[WiFi] portal stop=%s\n",
+                          stopped ? "ok" : "failed");
 }
 
 void NetworkTimeService::handlePortalRoot() {
@@ -394,7 +396,7 @@ void NetworkTimeService::tick(const bool bleConnected) {
         if (bleConnected && !bleResyncGraceActive_) {
           bleResyncGraceActive_ = true;
           nextAttemptMs_ = now + config::kBleResyncGraceMs;
-          Serial.printf(
+          CLOCK_DIAGNOSTIC_PRINTF(
               "[WiFi] deferring fallback for connected BLE grace_ms=%lu\n",
               static_cast<unsigned long>(config::kBleResyncGraceMs));
         } else {

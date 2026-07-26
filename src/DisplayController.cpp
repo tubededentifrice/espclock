@@ -3,6 +3,7 @@
 #include <Arduino.h>
 
 #include "AppConfig.h"
+#include "Diagnostics.h"
 #include "TimeKeeper.h"
 
 DisplayController::DisplayController()
@@ -28,11 +29,12 @@ void DisplayController::tryLightSensor() {
     if (lightSensor_.begin(BH1750::ONE_TIME_HIGH_RES_MODE, address)) {
       lightSensorAvailable_ = true;
       lightSensorAddress_ = address;
-      Serial.printf("BH1750 detected at I2C address 0x%02X\n", address);
+      CLOCK_DIAGNOSTIC_PRINTF(
+          "BH1750 detected at I2C address 0x%02X\n", address);
 #if CLOCK_LIGHT_DIAGNOSTICS
-      Serial.printf("LIGHT sensor=ready address=0x%02X sample_ms=%lu\n",
-                    address,
-                    static_cast<unsigned long>(config::kLightSampleMs));
+      CLOCK_DIAGNOSTIC_PRINTF(
+          "LIGHT sensor=ready address=0x%02X sample_ms=%lu\n", address,
+          static_cast<unsigned long>(config::kLightSampleMs));
 #endif
       break;
     }
@@ -44,8 +46,8 @@ void DisplayController::tryLightSensor() {
   }
 #if CLOCK_LIGHT_DIAGNOSTICS
   if (!lightSensorAvailable_) {
-    Serial.printf("LIGHT sensor=missing fallback_level=%u\n",
-                  config::kFallbackBrightness);
+    CLOCK_DIAGNOSTIC_PRINTF("LIGHT sensor=missing fallback_level=%u\n",
+                            config::kFallbackBrightness);
   }
 #endif
 }
@@ -65,8 +67,9 @@ void DisplayController::sampleLight() {
   }
   if (!lightSensor_.measurementReady(false)) {
 #if CLOCK_LIGHT_DIAGNOSTICS
-    Serial.printf("LIGHT sample=not-ready consecutive=%u\n",
-                  static_cast<unsigned>(unreadyLightReadings_ + 1U));
+    CLOCK_DIAGNOSTIC_PRINTF(
+        "LIGHT sample=not-ready consecutive=%u\n",
+        static_cast<unsigned>(unreadyLightReadings_ + 1U));
 #endif
     if (++unreadyLightReadings_ >= 5) {
       lightSensorAvailable_ = false;
@@ -74,8 +77,9 @@ void DisplayController::sampleLight() {
       if (displayAvailable_) {
         display_.setBrightness(config::kFallbackBrightness);
       }
-      Serial.printf("BH1750 at 0x%02X stopped producing measurements\n",
-                    lightSensorAddress_);
+      CLOCK_DIAGNOSTIC_PRINTF(
+          "BH1750 at 0x%02X stopped producing measurements\n",
+          lightSensorAddress_);
     }
     return;
   }
@@ -89,15 +93,17 @@ void DisplayController::sampleLight() {
     if (displayAvailable_) {
       display_.setBrightness(config::kFallbackBrightness);
     }
-    Serial.printf("BH1750 at 0x%02X could not start next measurement\n",
-                  lightSensorAddress_);
+    CLOCK_DIAGNOSTIC_PRINTF(
+        "BH1750 at 0x%02X could not start next measurement\n",
+        lightSensorAddress_);
     return;
   }
   if (!(lux >= 0.0F) || lux > 100000.0F) {
 #if CLOCK_LIGHT_DIAGNOSTICS
-    Serial.printf("LIGHT sample=invalid raw_lux=%.2f consecutive=%u\n",
-                  static_cast<double>(lux),
-                  static_cast<unsigned>(invalidLightReadings_ + 1U));
+    CLOCK_DIAGNOSTIC_PRINTF(
+        "LIGHT sample=invalid raw_lux=%.2f consecutive=%u\n",
+        static_cast<double>(lux),
+        static_cast<unsigned>(invalidLightReadings_ + 1U));
 #endif
     if (++invalidLightReadings_ >= 5) {
       lightSensorAvailable_ = false;
@@ -105,17 +111,19 @@ void DisplayController::sampleLight() {
       if (displayAvailable_) {
         display_.setBrightness(config::kFallbackBrightness);
       }
-      Serial.printf("BH1750 at 0x%02X returned invalid measurements\n",
-                    lightSensorAddress_);
+      CLOCK_DIAGNOSTIC_PRINTF(
+          "BH1750 at 0x%02X returned invalid measurements\n",
+          lightSensorAddress_);
     }
   } else {
     invalidLightReadings_ = 0;
     const uint8_t brightnessLevel = lightLevel_.update(lux);
 #if CLOCK_LIGHT_DIAGNOSTICS
-    Serial.printf("LIGHT raw_lux=%.2f filtered_lux=%.2f level=%u\n",
-                  static_cast<double>(lux),
-                  static_cast<double>(lightLevel_.filteredLux()),
-                  static_cast<unsigned>(brightnessLevel));
+    CLOCK_DIAGNOSTIC_PRINTF(
+        "LIGHT raw_lux=%.2f filtered_lux=%.2f level=%u\n",
+        static_cast<double>(lux),
+        static_cast<double>(lightLevel_.filteredLux()),
+        static_cast<unsigned>(brightnessLevel));
 #endif
     if (displayAvailable_) {
       display_.setBrightness(brightnessLevel);

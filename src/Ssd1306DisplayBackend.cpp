@@ -7,6 +7,7 @@
 #include <Arduino.h>
 #include <Wire.h>
 
+#include "Diagnostics.h"
 #include "OledDigitGlyph.h"
 #include "OledBrightness.h"
 #include "OledPerimeter.h"
@@ -72,11 +73,11 @@ void Ssd1306DisplayBackend::setBrightness(const uint8_t level) {
   // content to be regenerated after every brightness-level change.
   lastFrameKey_ = 0xFFFFFFFFUL;
 #if CLOCK_LIGHT_DIAGNOSTICS
-  Serial.printf("LIGHT oled_level=%u contrast=%u pixel_coverage=%u/16\n",
-                static_cast<unsigned>(bounded),
-                static_cast<unsigned>(oledbrightness::contrast(bounded)),
-                static_cast<unsigned>(
-                    oledbrightness::ditherThreshold(bounded)));
+  CLOCK_DIAGNOSTIC_PRINTF(
+      "LIGHT oled_level=%u contrast=%u pixel_coverage=%u/16\n",
+      static_cast<unsigned>(bounded),
+      static_cast<unsigned>(oledbrightness::contrast(bounded)),
+      static_cast<unsigned>(oledbrightness::ditherThreshold(bounded)));
 #endif
 }
 

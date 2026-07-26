@@ -5,6 +5,7 @@
 #include "AppConfig.h"
 #include "BleTimeService.h"
 #include "ClockCore.h"
+#include "Diagnostics.h"
 #include "DisplayController.h"
 #include "NetworkTimeService.h"
 #include "TimeKeeper.h"
@@ -68,7 +69,7 @@ void handleRecoveryButton() {
     } else if (!recoveryResetArmed &&
                now - recoveryButtonPressedMs >= config::kRecoveryHoldMs) {
       recoveryResetArmed = true;
-      Serial.println(
+      CLOCK_DIAGNOSTIC_PRINTLN(
           "Recovery armed; release BOOT to clear sync trust and BLE bonds");
     }
     return;
@@ -77,7 +78,7 @@ void handleRecoveryButton() {
   if (recoveryResetArmed) {
     clockTime.clearSyncTrust();
     bleTime.clearBonds();
-    Serial.println("Recovery complete; restarting");
+    CLOCK_DIAGNOSTIC_PRINTLN("Recovery complete; restarting");
     delay(100);
     ESP.restart();
   }
@@ -95,12 +96,14 @@ UserDisplayState displayState() {
 }  // namespace
 
 void setup() {
-  Serial.begin(115200);
+#if CLOCK_ENABLE_DIAGNOSTICS
+  CLOCK_DIAGNOSTIC_BEGIN(115200);
   delay(100);
+#endif
 #if CLOCK_CPU_FREQUENCY_MHZ > 0
   if (!setCpuFrequencyMhz(config::kCpuFrequencyMhz)) {
-    Serial.printf("CPU frequency change to %u MHz failed\n",
-                  config::kCpuFrequencyMhz);
+    CLOCK_DIAGNOSTIC_PRINTF("CPU frequency change to %u MHz failed\n",
+                            config::kCpuFrequencyMhz);
   }
 #endif
   pinMode(config::kRecoveryButtonPin, INPUT_PULLUP);
@@ -112,7 +115,7 @@ void setup() {
   networkTime.begin(enqueueTimeUpdate, clockTime.utcOffsetMinutes(),
                     clockTime.hasConfirmedSync());
 
-  Serial.printf(
+  CLOCK_DIAGNOSTIC_PRINTF(
       "Kids Clock boot: display=%s/%s, light=%s, RTC=%s, time=%s, "
       "offset=%d min, cpu=%u MHz\n",
                 clockDisplay.displayName(),
@@ -122,8 +125,9 @@ void setup() {
                 clockTime.hasValidTime() ? "valid" : "needed",
                 clockTime.utcOffsetMinutes(), getCpuFrequencyMhz());
 #if CLOCK_DISPLAY_DRIVER == CLOCK_DISPLAY_SSD1306
-  Serial.printf("OLED configured at I2C address 0x%02X (%dx%d)\n",
-                config::kOledAddress, CLOCK_OLED_WIDTH, CLOCK_OLED_HEIGHT);
+  CLOCK_DIAGNOSTIC_PRINTF(
+      "OLED configured at I2C address 0x%02X (%dx%d)\n",
+      config::kOledAddress, CLOCK_OLED_WIDTH, CLOCK_OLED_HEIGHT);
 #endif
 }
 
@@ -139,10 +143,11 @@ void loop() {
     if (applied) {
       bleTime.markTimeConfirmed();
       networkTime.onExternalTimeSync(update.utcOffsetMinutes);
-      Serial.printf("Time synchronized: source=%u epoch=%lld offset=%d\n",
-                    static_cast<unsigned>(update.source),
-                    static_cast<long long>(update.unixUtc),
-                    update.utcOffsetMinutes);
+      CLOCK_DIAGNOSTIC_PRINTF(
+          "Time synchronized: source=%u epoch=%lld offset=%d\n",
+          static_cast<unsigned>(update.source),
+          static_cast<long long>(update.unixUtc),
+          update.utcOffsetMinutes);
     }
   }
 

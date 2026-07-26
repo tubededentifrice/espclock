@@ -211,6 +211,13 @@ Open the serial monitor:
 uv run pio device monitor --baud 115200
 ```
 
+Normal firmware profiles are optimized release builds and compile application
+serial diagnostics out. For a temporary bench build, add
+`-D CLOCK_ENABLE_DIAGNOSTICS=1` to the affected profile's `build_flags`, rebuild,
+and monitor at 115200 baud. Remove the flag before producing a deployment
+image. ESP ROM boot messages can still appear independently of the application
+diagnostics flag.
+
 If a clone does not enter download mode automatically, hold its `BOOT` button, tap `RESET`, release `BOOT`, and retry the upload. These buttons are not used in normal clock operation. The existing BOOT button also provides the deliberate recovery gesture described below.
 
 The default build is the full-size ESP32 + 128x64 OLED bench profile. Available
@@ -396,10 +403,10 @@ the BH1750 is absent, cannot start its next one-shot measurement, or stops
 producing valid, ready samples, the display remains usable at fallback level 2
 and the sensor is retried every 30 seconds.
 
-For bench diagnosis, temporarily build the affected profile with
-`CLOCK_LIGHT_DIAGNOSTICS=1` to log each raw and filtered lux sample, selected
-level, and SSD1306 contrast command at 115200 baud. Normal profiles leave these
-periodic diagnostics disabled.
+For bench diagnosis, temporarily build the affected profile with both
+`CLOCK_ENABLE_DIAGNOSTICS=1` and `CLOCK_LIGHT_DIAGNOSTICS=1` to log each raw and
+filtered lux sample, selected level, and SSD1306 contrast command at 115200
+baud. Normal profiles compile these diagnostics out.
 
 Tune the following in `include/AppConfig.h` or with PlatformIO `-D` flags:
 
@@ -407,6 +414,7 @@ Tune the following in `include/AppConfig.h` or with PlatformIO `-D` flags:
 - main-loop delay and optional CPU frequency;
 - BLE advertising, portal, Wi-Fi, NTP, resync, and BLE-first grace timings;
 - light sample interval;
+- application and verbose light diagnostics;
 - fallback UTC offset;
 - open Wi-Fi enable/disable.
 

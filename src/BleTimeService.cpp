@@ -5,6 +5,7 @@
 
 #include "AppConfig.h"
 #include "ClockCore.h"
+#include "Diagnostics.h"
 #include "TimeKeeper.h"
 
 namespace {
@@ -18,8 +19,10 @@ constexpr uint32_t kSyncRequestRetryMs = 30000UL;
 constexpr uint8_t kMaximumSyncRequestRetries = 2;
 constexpr uint32_t kAdvertisingRecoveryIntervalMs = 5000UL;
 constexpr uint8_t kMaximumAdvertisingRecoveryAttempts = 3;
+#if CLOCK_ENABLE_DIAGNOSTICS
 constexpr uint32_t kGapFailureLogIntervalMs = 2000UL;
 constexpr uint32_t kPolicyRejectionLogIntervalMs = 5000UL;
+#endif
 constexpr uint32_t kTimeCharacteristicProperties =
     NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::WRITE |
     NIMBLE_PROPERTY::WRITE_ENC | NIMBLE_PROPERTY::NOTIFY;
@@ -27,15 +30,6 @@ constexpr uint32_t kTimeCharacteristicProperties =
 constexpr uint16_t advertisingIntervalUnits(const uint32_t milliseconds) {
   return static_cast<uint16_t>((milliseconds * 1000UL) / 625UL);
 }
-
-struct BoundedGapLog {
-  uint32_t lastLogMs = 0;
-  uint16_t suppressed = 0;
-  bool hasLogged = false;
-};
-
-BoundedGapLog disconnectLog;
-BoundedGapLog connectionFailureLog;
 
 static_assert(
     (kTimeCharacteristicProperties & NIMBLE_PROPERTY::WRITE) != 0 &&
@@ -48,14 +42,24 @@ void setStatusValue(NimBLECharacteristic* characteristic,
       reinterpret_cast<const uint8_t*>(status), std::strlen(status));
 }
 
+#if CLOCK_ENABLE_DIAGNOSTICS
+struct BoundedGapLog {
+  uint32_t lastLogMs = 0;
+  uint16_t suppressed = 0;
+  bool hasLogged = false;
+};
+
+BoundedGapLog disconnectLog;
+BoundedGapLog connectionFailureLog;
+
 void logGapFailure(BoundedGapLog& log, const char* event,
                    const int reason) {
   const uint32_t now = millis();
   if (!log.hasLogged ||
       now - log.lastLogMs >= kGapFailureLogIntervalMs) {
-    Serial.printf("[BLE] %s reason=%d (%s) suppressed=%u\n", event,
-                  reason, NimBLEUtils::returnCodeToString(reason),
-                  log.suppressed);
+    CLOCK_DIAGNOSTIC_PRINTF(
+        "[BLE] %s reason=%d (%s) suppressed=%u\n", event, reason,
+        NimBLEUtils::returnCodeToString(reason), log.suppressed);
     log.lastLogMs = now;
     log.suppressed = 0;
     log.hasLogged = true;
@@ -78,6 +82,7 @@ int logGapEvent(ble_gap_event* event, void*) {
   }
   return 0;
 }
+#endif
 }  // namespace
 
 class BleTimeService::ServerCallbacks : public NimBLEServerCallbacks {
@@ -137,7 +142,9 @@ void BleTimeService::begin(const TimeUpdateHandler handler,
            static_cast<unsigned>(chipId & 0xFFFFU));
 
   NimBLEDevice::init(deviceName);
+#if CLOCK_ENABLE_DIAGNOSTICS
   NimBLEDevice::setCustomGapHandler(logGapEvent);
+#endif
   NimBLEDevice::setPower(ESP_PWR_LVL_P9);
   // Just Works + bonding: no PIN or button is required. This encrypts the radio
   // link but, without an input/display confirmation, does not provide MITM
@@ -176,7 +183,7 @@ void BleTimeService::begin(const TimeUpdateHandler handler,
   advertising->setMaxInterval(
       advertisingIntervalUnits(config::kBleFastAdvertisingMaxMs));
   const bool advertisingStarted = advertising->start();
-  Serial.printf(
+  CLOCK_DIAGNOSTIC_PRINTF(
       "[BLE] advertising start=%s name=%s service=%s adv_bytes=%u "
       "scan_response_bytes=%u connectable=yes bondable=yes "
       "pairing_window_ms=%lu interval_ms=%lu-%lu\n",
@@ -213,11 +220,12 @@ void BleTimeService::onConnect(ble_gap_conn_desc* description) {
       description != nullptr && !encrypted && !knownBond &&
       !pairingOpen();
   if (rejectOutsidePairingWindow) {
+#if CLOCK_ENABLE_DIAGNOSTICS
     const uint32_t now = millis();
     if (!policyRejectionLogged_ ||
         now - lastPolicyRejectionLogMs_ >=
             kPolicyRejectionLogIntervalMs) {
-      Serial.printf(
+      CLOCK_DIAGNOSTIC_PRINTF(
           "[BLE] rejected unbonded connection outside pairing window "
           "suppressed=%u\n",
           suppressedPolicyRejections_);
@@ -227,18 +235,19 @@ void BleTimeService::onConnect(ble_gap_conn_desc* description) {
     } else if (suppressedPolicyRejections_ < UINT16_MAX) {
       ++suppressedPolicyRejections_;
     }
+#endif
     const int disconnectResult =
         server_->disconnect(description->conn_handle);
     policyDisconnectPending_ = disconnectResult == 0;
     if (disconnectResult != 0) {
-      Serial.printf(
+      CLOCK_DIAGNOSTIC_PRINTF(
           "[BLE] policy disconnect failed reason=%d (%s)\n",
           disconnectResult,
           NimBLEUtils::returnCodeToString(disconnectResult));
     }
     return;
   }
-  Serial.printf(
+  CLOCK_DIAGNOSTIC_PRINTF(
       "[BLE] connected handle=%u encrypted=%s bonded=%s known_bond=%s "
       "pairing_open=%s\n",
       description != nullptr ? description->conn_handle : UINT16_MAX,
@@ -252,8 +261,9 @@ void BleTimeService::onConnect(ble_gap_conn_desc* description) {
         NimBLEDevice::getNumBonds() >= CONFIG_BT_NIMBLE_MAX_BONDS) {
       NimBLEDevice::deleteBond(NimBLEDevice::getBondedAddress(0));
     }
-    Serial.printf("[BLE] authentication requested handle=%u\n",
-                  description->conn_handle);
+    CLOCK_DIAGNOSTIC_PRINTF(
+        "[BLE] authentication requested handle=%u\n",
+        description->conn_handle);
     NimBLEDevice::startSecurity(description->conn_handle);
   }
   requestSync();
@@ -264,15 +274,17 @@ void BleTimeService::onAuthenticationComplete(
   if (description == nullptr || !description->sec_state.encrypted ||
       !description->sec_state.bonded) {
     activeConnectionBonded_.store(false);
-    Serial.println("[BLE] authentication failed; disconnecting");
+    CLOCK_DIAGNOSTIC_PRINTLN(
+        "[BLE] authentication failed; disconnecting");
     if (description != nullptr) {
       server_->disconnect(description->conn_handle);
     }
     return;
   }
   activeConnectionBonded_.store(true);
-  Serial.printf("[BLE] authentication complete handle=%u bonded=yes\n",
-                description->conn_handle);
+  CLOCK_DIAGNOSTIC_PRINTF(
+      "[BLE] authentication complete handle=%u bonded=yes\n",
+      description->conn_handle);
   requestSync();
 }
 
@@ -280,9 +292,9 @@ void BleTimeService::onDisconnect(ble_gap_conn_desc* description) {
   const bool policyDisconnect = policyDisconnectPending_;
   policyDisconnectPending_ = false;
   if (!policyDisconnect) {
-    Serial.printf("[BLE] disconnected handle=%u; restarting advertising\n",
-                  description != nullptr ? description->conn_handle
-                                         : UINT16_MAX);
+    CLOCK_DIAGNOSTIC_PRINTF(
+        "[BLE] disconnected handle=%u; restarting advertising\n",
+        description != nullptr ? description->conn_handle : UINT16_MAX);
   }
   if (connectionCount_ > 0) {
     --connectionCount_;
@@ -301,8 +313,8 @@ void BleTimeService::onDisconnect(ble_gap_conn_desc* description) {
     advertisingRecoveryAttempts_ = 0;
   }
   if (!policyDisconnect || !restarted) {
-    Serial.printf("[BLE] advertising restart=%s\n",
-                  restarted ? "ok" : "failed");
+    CLOCK_DIAGNOSTIC_PRINTF("[BLE] advertising restart=%s\n",
+                            restarted ? "ok" : "failed");
   }
 }
 
@@ -426,7 +438,7 @@ bool BleTimeService::transitionToSlowAdvertising() {
   slowAdvertisingConfigured_.store(true);
   const bool shouldAdvertise = !connected();
   const bool restarted = !shouldAdvertise || advertising->start();
-  Serial.printf(
+  CLOCK_DIAGNOSTIC_PRINTF(
       "[BLE] advertising duty=slow interval_ms=%lu-%lu restart=%s\n",
       static_cast<unsigned long>(config::kBleSlowAdvertisingMinMs),
       static_cast<unsigned long>(config::kBleSlowAdvertisingMaxMs),
@@ -440,9 +452,10 @@ void BleTimeService::tick(const TimeKeeper& clock) {
       now - bootStartedMs_ >= config::kNewBlePairingWindowMs &&
       transitionToSlowAdvertising()) {
     pairingWindowStatusLogged_ = true;
-    Serial.printf("[BLE] pairing window closed advertising=%s connected=%s\n",
-                  advertising() ? "active" : "inactive",
-                  connected() ? "yes" : "no");
+    CLOCK_DIAGNOSTIC_PRINTF(
+        "[BLE] pairing window closed advertising=%s connected=%s\n",
+        advertising() ? "active" : "inactive",
+        connected() ? "yes" : "no");
   }
   if (!connected() && !advertising() &&
       advertisingRecoveryAttempts_ <
@@ -452,10 +465,10 @@ void BleTimeService::tick(const TimeKeeper& clock) {
     lastAdvertisingRecoveryMs_ = now;
     ++advertisingRecoveryAttempts_;
     const bool restarted = NimBLEDevice::startAdvertising();
-    Serial.printf("[BLE] advertising recovery=%s attempt=%u/%u\n",
-                  restarted ? "ok" : "failed",
-                  advertisingRecoveryAttempts_,
-                  kMaximumAdvertisingRecoveryAttempts);
+    CLOCK_DIAGNOSTIC_PRINTF(
+        "[BLE] advertising recovery=%s attempt=%u/%u\n",
+        restarted ? "ok" : "failed", advertisingRecoveryAttempts_,
+        kMaximumAdvertisingRecoveryAttempts);
     if (restarted) {
       advertisingRecoveryAttempts_ = 0;
     }

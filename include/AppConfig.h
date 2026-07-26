@@ -114,6 +114,10 @@
 #define CLOCK_LIGHT_SAMPLE_MS 1000UL
 #endif
 
+#ifndef CLOCK_ENABLE_DIAGNOSTICS
+#define CLOCK_ENABLE_DIAGNOSTICS 0
+#endif
+
 #ifndef CLOCK_LIGHT_DIAGNOSTICS
 #define CLOCK_LIGHT_DIAGNOSTICS 0
 #endif
@@ -159,7 +163,6 @@ constexpr uint32_t kWifiConnectTimeoutMs = CLOCK_WIFI_CONNECT_TIMEOUT_MS;
 constexpr uint32_t kNtpTimeoutMs = CLOCK_NTP_TIMEOUT_MS;
 constexpr uint32_t kResyncIntervalMs = CLOCK_RESYNC_INTERVAL_MS;
 constexpr uint32_t kLightSampleMs = CLOCK_LIGHT_SAMPLE_MS;
-constexpr bool kLightDiagnostics = CLOCK_LIGHT_DIAGNOSTICS != 0;
 constexpr uint32_t kPairingDisplayMs = CLOCK_PAIRING_DISPLAY_MS;
 constexpr uint8_t kRecoveryButtonPin = CLOCK_RECOVERY_BUTTON_PIN;
 constexpr uint32_t kRecoveryHoldMs = CLOCK_RECOVERY_HOLD_MS;
@@ -188,9 +191,15 @@ static_assert(kMainLoopDelayMs >= 1 && kMainLoopDelayMs <= 100,
               "CLOCK_MAIN_LOOP_DELAY_MS must be between 1 and 100");
 static_assert(kBh1750Address == 0x23 || kBh1750Address == 0x5C,
               "CLOCK_BH1750_ADDRESS must be 0x23 or 0x5C");
+static_assert(CLOCK_ENABLE_DIAGNOSTICS == 0 ||
+                  CLOCK_ENABLE_DIAGNOSTICS == 1,
+              "CLOCK_ENABLE_DIAGNOSTICS must be 0 or 1");
 static_assert(CLOCK_LIGHT_DIAGNOSTICS == 0 ||
                   CLOCK_LIGHT_DIAGNOSTICS == 1,
               "CLOCK_LIGHT_DIAGNOSTICS must be 0 or 1");
+static_assert(CLOCK_LIGHT_DIAGNOSTICS == 0 ||
+                  CLOCK_ENABLE_DIAGNOSTICS == 1,
+              "CLOCK_LIGHT_DIAGNOSTICS requires CLOCK_ENABLE_DIAGNOSTICS");
 static_assert(kBleFastAdvertisingMinMs >= 20 &&
                   kBleFastAdvertisingMinMs <=
                       kBleFastAdvertisingMaxMs &&
