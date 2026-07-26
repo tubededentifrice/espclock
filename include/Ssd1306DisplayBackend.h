@@ -19,6 +19,9 @@ class Ssd1306DisplayBackend final : public DisplayBackend {
   void applyBrightnessDither();
   void drawDigit(uint8_t digit, int16_t x, int16_t y,
                  int16_t width, int16_t height);
+  void drawNightDigit(uint8_t digit, int16_t x, int16_t y,
+                      int16_t width, int16_t height);
+  void drawNightTime(uint8_t hour, uint8_t minute);
   void drawPerimeterProgress(uint8_t minute, uint8_t second);
   void present();
 

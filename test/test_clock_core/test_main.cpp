@@ -3,6 +3,7 @@
 #include <unity.h>
 
 #include "ClockCore.h"
+#include "OledDigitGlyph.h"
 #include "OledBrightness.h"
 #include "OledPerimeter.h"
 
@@ -115,6 +116,10 @@ void test_light_levels_cover_the_full_ambient_range() {
 }
 
 void test_oled_brightness_steps_are_monotonic_and_bounded() {
+  TEST_ASSERT_EQUAL_UINT8(1, oledbrightness::contrast(0));
+  TEST_ASSERT_EQUAL_UINT8(1, oledbrightness::ditherThreshold(0));
+  TEST_ASSERT_TRUE(oledbrightness::usesSparseNightFace(0));
+  TEST_ASSERT_FALSE(oledbrightness::usesSparseNightFace(1));
   for (uint8_t level = 1; level < oledbrightness::kLevelCount; ++level) {
     TEST_ASSERT_GREATER_THAN(
         oledbrightness::contrast(level - 1),
@@ -128,6 +133,41 @@ void test_oled_brightness_steps_are_monotonic_and_bounded() {
   TEST_ASSERT_EQUAL_UINT8(
       oledbrightness::ditherThreshold(7),
       oledbrightness::ditherThreshold(255));
+}
+
+void test_sparse_oled_night_face_matches_day_geometry() {
+  for (uint8_t digit = 0; digit < 10; ++digit) {
+    TEST_ASSERT_GREATER_THAN_UINT8(9, oledglyph::litPixelCount(digit));
+    TEST_ASSERT_LESS_THAN_UINT8(21, oledglyph::litPixelCount(digit));
+  }
+  TEST_ASSERT_EQUAL_UINT8(0, oledglyph::litPixelCount(10));
+  TEST_ASSERT_FALSE(oledglyph::isPixelLit(0, 7, 0));
+  TEST_ASSERT_FALSE(oledglyph::isPixelLit(0, 0, 5));
+
+  const oledglyph::FaceGeometry tall = oledglyph::faceGeometry(64);
+  TEST_ASSERT_EQUAL_INT16(114, tall.contentWidth);
+  TEST_ASSERT_EQUAL_INT16(56, tall.digitHeight);
+  TEST_ASSERT_LESS_OR_EQUAL_INT16(128, tall.contentWidth);
+  TEST_ASSERT_LESS_OR_EQUAL_INT16(128, tall.contentWidth + 2);
+  TEST_ASSERT_LESS_OR_EQUAL_INT16(64, tall.digitHeight);
+  TEST_ASSERT_EQUAL_INT16(
+      0, oledglyph::sparseCoordinate(0, 4, tall.digitWidth));
+  TEST_ASSERT_EQUAL_INT16(
+      24, oledglyph::sparseCoordinate(4, 4, tall.digitWidth));
+  TEST_ASSERT_EQUAL_INT16(
+      55, oledglyph::sparseCoordinate(6, 6, tall.digitHeight));
+
+  const oledglyph::FaceGeometry shortDisplay =
+      oledglyph::faceGeometry(32);
+  TEST_ASSERT_EQUAL_INT16(92, shortDisplay.contentWidth);
+  TEST_ASSERT_EQUAL_INT16(28, shortDisplay.digitHeight);
+  TEST_ASSERT_LESS_OR_EQUAL_INT16(128, shortDisplay.contentWidth);
+  TEST_ASSERT_LESS_OR_EQUAL_INT16(128, shortDisplay.contentWidth + 2);
+  TEST_ASSERT_LESS_OR_EQUAL_INT16(32, shortDisplay.digitHeight);
+  TEST_ASSERT_EQUAL_INT16(
+      19, oledglyph::sparseCoordinate(4, 4, shortDisplay.digitWidth));
+  TEST_ASSERT_EQUAL_INT16(
+      27, oledglyph::sparseCoordinate(6, 6, shortDisplay.digitHeight));
 }
 
 void test_oled_perimeter_uses_each_extreme_pixel_once() {
@@ -172,7 +212,7 @@ void test_oled_perimeter_dither_keeps_every_edge_visible() {
   uint16_t visibleCount = 0;
   const uint16_t totalPixels = oledperimeter::pixelCount(128, 64);
   for (uint16_t index = 0; index < totalPixels; ++index) {
-    if (!oledperimeter::isPixelVisible(index, 2)) {
+    if (!oledperimeter::isPixelVisible(index, 1)) {
       continue;
     }
     ++visibleCount;
@@ -192,7 +232,7 @@ void test_oled_perimeter_dither_keeps_every_edge_visible() {
     }
   }
 
-  TEST_ASSERT_EQUAL_UINT16(48, visibleCount);
+  TEST_ASSERT_EQUAL_UINT16(24, visibleCount);
   for (uint8_t edge = 0; edge < 4; ++edge) {
     TEST_ASSERT_GREATER_THAN_UINT16(0, edgeCounts[edge]);
   }
@@ -408,6 +448,7 @@ int main(int, char**) {
   RUN_TEST(test_light_filter_reset_discards_stale_brightness);
   RUN_TEST(test_light_levels_cover_the_full_ambient_range);
   RUN_TEST(test_oled_brightness_steps_are_monotonic_and_bounded);
+  RUN_TEST(test_sparse_oled_night_face_matches_day_geometry);
   RUN_TEST(test_oled_perimeter_uses_each_extreme_pixel_once);
   RUN_TEST(test_oled_perimeter_progress_starts_at_top_center);
   RUN_TEST(test_oled_perimeter_dither_keeps_every_edge_visible);

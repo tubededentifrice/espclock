@@ -332,8 +332,8 @@ and a missing phone simply leads to another scheduled refresh.
 The four-digit display needs an unambiguous but quiet state vocabulary documented
 in the README, for example:
 
-- steady OLED colon with alternating one-minute perimeter fill/drain, or normal
-  TM1637 colon cadence: valid local time;
+- steady OLED colon with alternating one-minute perimeter fill/drain above
+  full-night level 0, or normal TM1637 colon cadence: valid local time;
 - brief slow colon pulse: looking for sync;
 - distinct dot/colon pattern: pairing available;
 - persistent subtle dot: UTC/RTC valid but timezone stale;
@@ -410,6 +410,11 @@ No item below should be replaced by “works on my phone.”
 - [ ] In a dark bedroom after settling, the display remains readable without
       noticeably lighting walls/ceiling; evaluate with the actual red window and
       enclosure, not a bare bench module.
+- [ ] On each SSD1306 geometry, level 0 uses its sparse dot-matrix face without
+      the decorative perimeter; its outer digit footprint matches levels 1–7,
+      digits remain unambiguous at the intended distance, and temporary status
+      text remains readable. Do not accept a nominally lower contrast command
+      that blanks the qualified panel.
 - [ ] Sweep from darkness through normal indoor light to bright daylight:
       transitions are monotonic, take several seconds, do not hunt, and show no
       visible flicker.

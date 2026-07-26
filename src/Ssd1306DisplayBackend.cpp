@@ -7,22 +7,11 @@
 #include <Arduino.h>
 #include <Wire.h>
 
+#include "OledDigitGlyph.h"
 #include "OledBrightness.h"
 #include "OledPerimeter.h"
 
 namespace {
-constexpr uint8_t kDigitRows[10][7] = {
-    {0b01110, 0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b01110},
-    {0b00100, 0b01100, 0b00100, 0b00100, 0b00100, 0b00100, 0b01110},
-    {0b01110, 0b10001, 0b00001, 0b00010, 0b00100, 0b01000, 0b11111},
-    {0b11110, 0b00001, 0b00001, 0b01110, 0b00001, 0b00001, 0b11110},
-    {0b00010, 0b00110, 0b01010, 0b10010, 0b11111, 0b00010, 0b00010},
-    {0b11111, 0b10000, 0b10000, 0b11110, 0b00001, 0b00001, 0b11110},
-    {0b01110, 0b10000, 0b10000, 0b11110, 0b10001, 0b10001, 0b01110},
-    {0b11111, 0b00001, 0b00010, 0b00100, 0b01000, 0b01000, 0b01000},
-    {0b01110, 0b10001, 0b10001, 0b01110, 0b10001, 0b10001, 0b01110},
-    {0b01110, 0b10001, 0b10001, 0b01111, 0b00001, 0b00001, 0b01110},
-};
 constexpr uint8_t kBayer4x4[4][4] = {
     {0, 8, 2, 10},
     {12, 4, 14, 6},
@@ -103,12 +92,61 @@ void Ssd1306DisplayBackend::drawDigit(const uint8_t digit,
   const int16_t cellHeight = height / 7;
   for (uint8_t row = 0; row < 7; ++row) {
     for (uint8_t column = 0; column < 5; ++column) {
-      if (kDigitRows[digit][row] & (1U << (4U - column))) {
+      if (oledglyph::isPixelLit(digit, row, column)) {
         display_.fillRect(x + column * cellWidth, y + row * cellHeight,
                           cellWidth, cellHeight, SSD1306_WHITE);
       }
     }
   }
+}
+
+void Ssd1306DisplayBackend::drawNightDigit(const uint8_t digit,
+                                           const int16_t x,
+                                           const int16_t y,
+                                           const int16_t width,
+                                           const int16_t height) {
+  if (digit > 9) {
+    return;
+  }
+  for (uint8_t row = 0; row < 7; ++row) {
+    for (uint8_t column = 0; column < 5; ++column) {
+      if (oledglyph::isPixelLit(digit, row, column)) {
+        display_.drawPixel(
+            x + oledglyph::sparseCoordinate(column, 4, width),
+            y + oledglyph::sparseCoordinate(row, 6, height),
+            SSD1306_WHITE);
+      }
+    }
+  }
+}
+
+void Ssd1306DisplayBackend::drawNightTime(const uint8_t hour,
+                                          const uint8_t minute) {
+  const oledglyph::FaceGeometry geometry =
+      oledglyph::faceGeometry(height_);
+  const int16_t y = (height_ - geometry.digitHeight) / 2;
+  const int16_t wearShift =
+      static_cast<int16_t>(((hour * 60U + minute) / 5U) % 3U) - 1;
+  int16_t x = (width_ - geometry.contentWidth) / 2 + wearShift;
+  const uint8_t digits[4] = {
+      static_cast<uint8_t>(hour / 10U),
+      static_cast<uint8_t>(hour % 10U),
+      static_cast<uint8_t>(minute / 10U),
+      static_cast<uint8_t>(minute % 10U),
+  };
+
+  drawNightDigit(digits[0], x, y, geometry.digitWidth, geometry.digitHeight);
+  x += geometry.digitWidth + geometry.digitGap;
+  drawNightDigit(digits[1], x, y, geometry.digitWidth, geometry.digitHeight);
+  x += geometry.digitWidth + geometry.digitGap;
+  display_.drawPixel(x + geometry.colonWidth / 2, height_ / 3,
+                     SSD1306_WHITE);
+  display_.drawPixel(x + geometry.colonWidth / 2, (height_ * 2) / 3,
+                     SSD1306_WHITE);
+  x += geometry.colonWidth;
+  drawNightDigit(digits[2], x, y, geometry.digitWidth, geometry.digitHeight);
+  x += geometry.digitWidth + geometry.digitGap;
+  drawNightDigit(digits[3], x, y, geometry.digitWidth, geometry.digitHeight);
 }
 
 void Ssd1306DisplayBackend::present() {
@@ -178,43 +216,47 @@ void Ssd1306DisplayBackend::showTime(const uint8_t hour,
   lastFrameKey_ = frameKey;
   display_.clearDisplay();
 
-  constexpr int16_t kDigitGap = 2;
-  const int16_t cellWidth = height_ >= 48 ? 5 : 4;
-  const int16_t cellHeight = height_ >= 48 ? 8 : 4;
-  const int16_t digitWidth = cellWidth * 5;
-  const int16_t digitHeight = cellHeight * 7;
-  const int16_t colonWidth = height_ >= 48 ? 8 : 6;
-  const int16_t contentWidth =
-      4 * digitWidth + colonWidth + 3 * kDigitGap;
-  const int16_t y = (height_ - digitHeight) / 2;
+  if (oledbrightness::usesSparseNightFace(brightness_)) {
+    // Each source-font pixel becomes one widely spaced OLED pixel. Do not
+    // dither this already sparse face or its digit strokes become ambiguous.
+    // Omitting the perimeter also removes decorative light in a dark bedroom.
+    drawNightTime(hour, minute);
+    display_.display();
+    return;
+  }
+
+  const oledglyph::FaceGeometry geometry =
+      oledglyph::faceGeometry(height_);
+  const int16_t y = (height_ - geometry.digitHeight) / 2;
   // Move the static digit pattern by one pixel either way every five minutes to
   // distribute long-term OLED wear without making the clock visibly wander.
   const int16_t wearShift =
       static_cast<int16_t>(((hour * 60U + minute) / 5U) % 3U) - 1;
-  int16_t x = (width_ - contentWidth) / 2 + wearShift;
+  int16_t x = (width_ - geometry.contentWidth) / 2 + wearShift;
   const uint8_t digits[4] = {
       static_cast<uint8_t>(hour / 10U),
       static_cast<uint8_t>(hour % 10U),
       static_cast<uint8_t>(minute / 10U),
       static_cast<uint8_t>(minute % 10U),
   };
-  drawDigit(digits[0], x, y, digitWidth, digitHeight);
-  x += digitWidth + kDigitGap;
-  drawDigit(digits[1], x, y, digitWidth, digitHeight);
-  x += digitWidth + kDigitGap;
+  drawDigit(digits[0], x, y, geometry.digitWidth, geometry.digitHeight);
+  x += geometry.digitWidth + geometry.digitGap;
+  drawDigit(digits[1], x, y, geometry.digitWidth, geometry.digitHeight);
+  x += geometry.digitWidth + geometry.digitGap;
   const int16_t radius = height_ >= 48 ? 2 : 1;
-  display_.fillCircle(x + colonWidth / 2, height_ / 3, radius,
+  display_.fillCircle(x + geometry.colonWidth / 2, height_ / 3, radius,
                       SSD1306_WHITE);
-  display_.fillCircle(x + colonWidth / 2, (height_ * 2) / 3, radius,
+  display_.fillCircle(x + geometry.colonWidth / 2,
+                      (height_ * 2) / 3, radius,
                       SSD1306_WHITE);
-  x += colonWidth;
-  drawDigit(digits[2], x, y, digitWidth, digitHeight);
-  x += digitWidth + kDigitGap;
-  drawDigit(digits[3], x, y, digitWidth, digitHeight);
+  x += geometry.colonWidth;
+  drawDigit(digits[2], x, y, geometry.digitWidth, geometry.digitHeight);
+  x += geometry.digitWidth + geometry.digitGap;
+  drawDigit(digits[3], x, y, geometry.digitWidth, geometry.digitHeight);
 
   // Dither the broad glyphs in screen space, then sample the one-pixel border
   // along its path. Applying the 2D mask to the border can reject every pixel
-  // on an edge (notably x=127 and y=63 at minimum brightness).
+  // on an edge (notably x=127 and y=63 at low coverage).
   applyBrightnessDither();
   drawPerimeterProgress(minute, second);
   display_.display();

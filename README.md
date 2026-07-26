@@ -293,7 +293,7 @@ The current firmware stores a validated offset in 15-minute-capable minutes, not
 
 | Display | Meaning |
 |---|---|
-| OLED `HH:MM`, steady colon and clockwise perimeter | Valid local time; starting at top-center, even minutes fill the perimeter and odd minutes erase the same path in 60 equal steps; dim levels retain evenly spaced pixels along every reached edge |
+| OLED `HH:MM`, steady colon | Valid local time; at brightness levels 1–7, even minutes fill the perimeter clockwise and odd minutes erase the same path in 60 equal steps; full-night level 0 switches to a sparse dot-matrix face and suppresses the decorative perimeter |
 | TM1637 `HH:MM`, one blink per second | Phone-confirmed local offset this boot |
 | TM1637 `HH MM`, brief colon pulse every two seconds | Valid UTC with a retained, not-yet-confirmed timezone offset |
 | `PAIR` alternating with time | Boot-time BLE onboarding opportunity |
@@ -380,15 +380,21 @@ filter gives roughly a several-second response and 20% hysteresis prevents
 flicker near level boundaries. The normalized eight levels map directly to
 TM1637 brightness and to a visibly separated SSD1306 contrast curve. Because
 some small OLED modules show little perceived change across their contrast
-range, the SSD1306 backend also uses flicker-free spatial dithering from 12.5%
-pixel coverage at level 0 to 100% at level 7. A fully covered sensor reading
-around 0.83 lux settles to level 0; the sensor-missing fallback level 2 retains
-37.5% coverage. The one-pixel seconds perimeter is sampled separately along its
-clockwise path so low coverage cannot erase an entire screen edge. Firmware
-first tries the configured BH1750 address and then the other valid address
-(`0x23`/`0x5C`). If the BH1750 is absent, cannot start its next one-shot
-measurement, or stops producing valid, ready samples, the display remains usable
-at fallback level 2 and the sensor is retried every 30 seconds.
+range, the SSD1306 backend also uses flicker-free spatial dimming. Full-night
+level 0 uses contrast code 1, renders each 5×7 source-font point as one widely
+spaced OLED pixel across the same digit footprint as levels 1–7, and suppresses
+the decorative seconds perimeter. Contrast code 0 blanked the tested panel, so
+it is not treated as a usable brightness step. Temporary status text at level 0
+retains 1/16 pixel coverage. Levels 1–7 use the large connected-stroke face,
+rising from 25% coverage at level 1 to 100% at level 7. A fully covered sensor
+reading around 0.83 lux settles to level 0; the sensor-missing fallback level 2
+retains 37.5% coverage. At levels 1–7 the
+one-pixel seconds perimeter is sampled separately along its clockwise path so
+low coverage cannot erase an entire screen edge. Firmware first tries the
+configured BH1750 address and then the other valid address (`0x23`/`0x5C`). If
+the BH1750 is absent, cannot start its next one-shot measurement, or stops
+producing valid, ready samples, the display remains usable at fallback level 2
+and the sensor is retried every 30 seconds.
 
 For bench diagnosis, temporarily build the affected profile with
 `CLOCK_LIGHT_DIAGNOSTICS=1` to log each raw and filtered lux sample, selected
@@ -414,9 +420,10 @@ substitute.
 The C3 travel profiles request an 80 MHz CPU clock; the classic breadboard
 profiles retain their normal clock because they are bring-up targets. The main
 task yields for 20 ms instead of polling every 5 ms, and both display backends
-avoid retransmitting an unchanged frame. These changes do not alter the
-250 ms display policy, TM1637 colon cadence, OLED one-minute perimeter cadence,
-portal service, recovery gesture, or BLE callbacks.
+avoid retransmitting an unchanged frame. The level-0 night face suppresses the
+OLED perimeter, but its one-minute cadence at levels 1–7 is unchanged. These
+changes do not alter the 250 ms display policy, TM1637 colon cadence, portal
+service, recovery gesture, or BLE callbacks.
 
 At each later six-hour refresh, an already connected iPhone gets a 90-second
 BLE-first grace period covering the firmware's bounded notification retries.
@@ -456,8 +463,9 @@ rather than extrapolating from the bare ESP32-C3.
 External embedded libraries are version-pinned in `platformio.ini`. The
 SSD1306 profiles use the pinned Adafruit SSD1306, GFX, and BusIO libraries.
 Their connected-stroke 5×7 numeric glyphs maximize panel height without the
-hard-to-read gaps of a simulated seven-segment display. Host tooling is locked
-by uv.
+hard-to-read gaps of a simulated seven-segment display. OLED brightness level 0
+reuses the same full-size glyph footprint as a sparse, one-pixel dot matrix for
+full-night use. Host tooling is locked by uv.
 
 ## Acceptance checklist
 
@@ -465,7 +473,7 @@ Do not close or pot the case until every applicable physical item passes.
 
 ### Automated
 
-- [x] `uv run pio test -e native` passes (24/24).
+- [x] `uv run pio test -e native` passes (25/25).
 - [x] `uv run pio run -e esp32-devkit-oled-128x64` completes.
 - [x] All six display/board profiles compile in the final verification matrix.
 - [x] No firmware compiler warnings are reported.
@@ -478,7 +486,8 @@ Do not close or pot the case until every applicable physical item passes.
 
 - [ ] USB cold-start succeeds 20 times without pressing a button.
 - [ ] Both OLED profiles render correct, centered four-digit time, steady colon,
-  top-center 60-step alternating perimeter, and all status words.
+  the full-size sparse level-0 night face, the level-1–7 top-center 60-step
+  alternating perimeter, and all status words.
 - [ ] 0.96-inch and 0.91-inch displays are compared at two metres in daylight.
 - [ ] Minimum brightness remains readable but does not illuminate a dark bedroom.
 - [ ] BH1750 responds smoothly over dark, bedroom, room, and daylight conditions.
@@ -546,9 +555,10 @@ Do not close or pot the case until every applicable physical item passes.
   are excellent for solderless bring-up, but the larger TM1637 remains the
   leading final-display candidate until the two-metre and long-duration tests
   pass.
-- A four-digit display provides no numeric seconds or named timezone. The OLED
-  perimeter gives quiet seconds progress but does not expose timezone freshness;
-  the TM1637 colon cadence and serial log provide that diagnostic.
+- A four-digit display provides no numeric seconds or named timezone. At OLED
+  brightness levels 1–7, the perimeter gives quiet seconds progress but does
+  not expose timezone freshness; full-night level 0 omits that decorative
+  progress. The TM1637 colon cadence and serial log provide that diagnostic.
 
 These limits are why the RTC plus no-app portal are retained: the clock remains recoverable without pretending iOS guarantees continuous execution.
 
