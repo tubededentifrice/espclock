@@ -9,6 +9,18 @@ connected. The compact travel build uses an **ESP32-C3 Super Mini**, preferably
 with a larger 1.2-inch TM1637 display and a battery-backed DS3231 after the
 behavior has been proven on the bench.
 
+## Printable case
+
+![ESPClock printable case, shown as an exploded isometric and front view](hardware/case/case-preview.svg)
+
+The case is checked in as the editable
+[Fusion 360 design](hardware/case/esp-clock-case.f3d) and print-ready
+[front](hardware/case/front.stl) and [back](hardware/case/back.stl) STL files.
+The preview above is generated directly from those STL meshes. Treat this as
+the current prototype enclosure: complete the enclosure, RF, thermal, drop, and
+child-access acceptance checks below before using it as a finished child-facing
+case.
+
 ## What it does
 
 1. Reads UTC from a DS3231 when one is fitted and valid; otherwise it starts
@@ -169,8 +181,8 @@ If it fails, follow the 5 V plus BSS138 level-shifter alternative in [hardware/w
 3. Fit 100 µF across display `3V3`/`GND` and 100 nF near the I2C modules.
 4. Solder the final wiring and add strain relief; do not leave Dupont jumpers
    in the travel unit.
-5. Repeat the 24-hour, radio, brightness, and cold-start tests before designing
-   the case.
+5. Repeat the 24-hour, radio, brightness, and cold-start tests before treating
+   the printed case as final.
 
 Do not pot the first build. If later reinforcement is useful, use printed clips or electronics-safe neutral-cure silicone. Keep the antenna, USB-C connector, sensor aperture, socketed ESP, and coin cell clear and serviceable.
 
@@ -463,6 +475,7 @@ rather than extrapolating from the bare ESP32-C3.
 | `src/ClockCore.cpp` | Host-testable payload validation and light filtering |
 | `test/` | Native Unity tests |
 | `hardware/` | Wiring authority and protoboard placement |
+| `hardware/case/` | Fusion 360 case source, front/back STL exports, and generated preview |
 | `docs/` | Research and adversarial review |
 | `ios/` | iOS 18+ AccessorySetupKit/Core Bluetooth companion and packet tests |
 | `AGENTS.md` | Repository-wide agent instructions |
