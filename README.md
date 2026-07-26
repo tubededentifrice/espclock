@@ -131,7 +131,17 @@ Do not attach modules to C3 strapping pins GPIO2/8/9 or native-USB GPIO18/19.
 The 128x64 or 128x32 OLED can replace the TM1637 on the C3 by joining it to the
 same GPIO6/7 I2C bus.
 
-![ESPClock perfboard placement and wiring](hardware/protoboard-layout.svg)
+### Travel-build wiring diagram
+
+[![ESPClock ESP32-C3 Super Mini travel-build wiring](hardware/protoboard-layout.svg)](hardware/protoboard-layout.svg)
+
+The drawing shows the common top-view Super Mini header order, the four
+firmware-selected GPIO connections, both 3.3 V decoupling capacitors, and the
+RTC charge-path warning. It also shows the supported 0.96-inch SSD1306 128x64
+OLED and notes that the 128x32 OLED uses the same four wires; choose the matching
+compile-time profile and fit one display type. This is a routing guide rather
+than a 1:1 perfboard artwork; open the image for the full-size SVG and verify
+the labels on the exact boards before soldering.
 
 The complete net list, schematic, continuity procedure, level-shifter fallback, and mechanical notes are in [hardware/wiring.md](hardware/wiring.md).
 
