@@ -242,6 +242,22 @@ diagnostics flag.
 
 If a clone does not enter download mode automatically, hold its `BOOT` button, tap `RESET`, release `BOOT`, and retry the upload. These buttons are not used in normal clock operation. The existing BOOT button also provides the deliberate recovery gesture described below.
 
+### Qualify a newly received ESP32
+
+Before connecting modules or soldering a board, run the destructive
+[incoming-board radio diagnostic](docs/radio-diagnostics.md):
+
+```sh
+uv run tools/diagnose_esp.py
+```
+
+It erases the board without a confirmation prompt, installs a dedicated
+diagnostic image, checks clean boot and Wi-Fi reception, and asks for two
+external RF proofs: visibility of its Wi-Fi SSID and an encrypted
+write/acknowledgement from the physical-iPhone companion. Only that complete
+over-the-air result is reported as `PASS`; internal “started” return values
+alone are insufficient.
+
 The default build is the full-size ESP32 + 128x64 OLED bench profile. Available
 profiles are:
 
@@ -253,6 +269,8 @@ profiles are:
 | `esp32-c3-oled-128x64` | C3, 128x64 OLED |
 | `esp32-c3-oled-128x32` | C3, 128x32 OLED |
 | `esp32-c3-super-mini` | C3 travel target, TM1637 on GPIO4/3 |
+| `esp32-devkit-radio-diagnostic` | Destructive bare-board classic ESP32 acceptance image |
+| `esp32-c3-radio-diagnostic` | Destructive bare-board C3 acceptance image |
 
 OLED resolution cannot be identified reliably over I2C. If the 0.91-inch
 module is blank or malformed with the 128x32 profile, verify its controller,
@@ -287,8 +305,11 @@ ask that connected app for fresh time about every six hours. See the
 
 1. The display shows `PAIR` while BLE advertises.
 2. After two minutes, it shows `SEt` and starts the open Wi-Fi AP `KidsClock-xxxx`.
-3. On a phone, join that network. Its captive page should open and set the clock automatically.
-4. If it does not open, browse to [http://192.168.4.1](http://192.168.4.1) and tap **Set time now**.
+3. On a phone, join that network. As soon as its captive page loads, it reads
+   the phone's current time and offset and sets the clock automatically.
+4. If the captive page does not open, browse to
+   [http://192.168.4.1](http://192.168.4.1). Loading that page is sufficient;
+   there is no button or manual time entry.
 5. The page sends only Unix UTC and the phone's current UTC offset. It sends no account, Wi-Fi password, location coordinate, or personal data.
 
 The setup AP closes after success or after two minutes. With no RTC, the clock
@@ -500,13 +521,21 @@ full-night use. Host tooling is locked by uv.
 
 ## Acceptance checklist
 
+For every incoming ESP32, first obtain a complete `PASS` from
+`tools/diagnose_esp.py`; see the
+[radio diagnostic pass/fail rules](docs/radio-diagnostics.md). The checks below
+then qualify the assembled clock and its enclosure.
+
 Do not close or pot the case until every applicable physical item passes.
 
 ### Automated
 
-- [x] `uv run pio test -e native` passes (25/25).
+- [x] `uv run pio test -e native` passes (26/26).
+- [x] `uv run python -m unittest discover -s tools/tests` passes the nine
+  diagnostic-runner parser and classification tests.
 - [x] `uv run pio run -e esp32-devkit-oled-128x64` completes.
 - [x] All six display/board profiles compile in the final verification matrix.
+- [x] Both classic ESP32 and C3 radio-diagnostic profiles compile.
 - [x] No firmware compiler warnings are reported.
 - [x] Normal icon-inclusive Swift app and test-bundle builds complete for a
   generic iPhone target.
@@ -542,7 +571,8 @@ Do not close or pot the case until every applicable physical item passes.
 ### Time and recovery
 
 - [ ] Invalid RTC never displays a plausible invented time.
-- [ ] Portal sync works on at least one current iPhone and one current Android phone.
+- [ ] Portal sync starts on page load without a tap and works on at least one
+  current iPhone and one current Android phone.
 - [ ] BLE write works after first bond and after reconnect.
 - [ ] A second family phone can also bond/write.
 - [ ] All 16 bond/notification slots survive reboot/reconnect; adding or cancelling a 17th pairing follows the documented eviction/recovery behavior.

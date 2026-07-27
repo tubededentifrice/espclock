@@ -5,8 +5,8 @@ description = "Pinned host-side development tools for the ESPClock firmware"
 requires-python = ">=3.11"
 dependencies = [
     "platformio==6.1.19",
+    "pyserial==3.5",
 ]
 
 [tool.uv]
 package = false
-

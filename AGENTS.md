@@ -75,6 +75,12 @@ of silently working around it.
 - Build the travel target with
   `uv run pio run -e esp32-c3-super-mini`.
 - Run native tests with `uv run pio test -e native`.
+- Qualify a bare incoming ESP32 with `uv run tools/diagnose_esp.py`. This
+  workflow has standing authorization to erase the complete ESP flash and bonds
+  without confirmation; follow `docs/radio-diagnostics.md` and require its
+  external Wi-Fi and physical-iPhone BLE proofs before reporting `PASS`. A
+  Codex agent must request direct serial-device access up front and must not
+  classify a sandbox `/dev` open failure as a defective ESP.
 - Build the iOS target and test bundle with the commands in `ios/README.md`.
 - Use `apply_patch` for hand edits.
 

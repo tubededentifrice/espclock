@@ -9,6 +9,7 @@
 #include "AppConfig.h"
 #include "ClockCore.h"
 #include "Diagnostics.h"
+#include "PortalPage.h"
 
 NetworkTimeService* NetworkTimeService::instance_ = nullptr;
 volatile bool NetworkTimeService::ntpSynced_ = false;
@@ -23,23 +24,6 @@ constexpr char kNtpServer2[] = "pool.ntp.org";
 static_assert(config::kMaximumWifiAttemptsPerWindow ==
                   clockcore::WifiCandidateRanker::kCapacity,
               "Wi-Fi candidate capacity must match the per-window attempt cap");
-constexpr char kPortalHtml[] PROGMEM = R"HTML(
-<!doctype html><html><head><meta name="viewport" content="width=device-width">
-<title>Kids Clock</title><style>
-body{font:18px system-ui,sans-serif;max-width:32rem;margin:3rem auto;padding:1rem;
-background:#101418;color:#f4f5f6;text-align:center}button{font:inherit;padding:.8rem 1.3rem}
-#s{margin-top:1.5rem}</style></head><body>
-<h1>Set the clock</h1><p>This sends only the current time and time-zone offset.</p>
-<button onclick="setTime()">Set time now</button><p id="s">Waiting...</p>
-<script>
-async function setTime(){let s=document.querySelector('#s');s.textContent='Setting...';
-let b='epoch='+Math.floor(Date.now()/1000)+'&offset='+(-new Date().getTimezoneOffset());
-try{let r=await fetch('/set-time',{method:'POST',headers:
-{'Content-Type':'application/x-www-form-urlencoded'},body:b});
-s.textContent=r.ok?'Done. You can close this page.':'Could not set the time.'}
-catch(e){s.textContent='Connection lost. Check the clock display and retry if needed.'}}
-setTime();
-</script></body></html>)HTML";
 
 bool deadlineReached(const uint32_t now, const uint32_t deadline) {
   return static_cast<int32_t>(now - deadline) >= 0;
@@ -119,12 +103,13 @@ void NetworkTimeService::stopPortal() {
 
 void NetworkTimeService::handlePortalRoot() {
   web_.sendHeader("Cache-Control", "no-store");
-  web_.send(200, "text/html", FPSTR(kPortalHtml));
+  web_.send(200, "text/html", FPSTR(portalpage::kHtml));
 }
 
 void NetworkTimeService::handlePortalTime() {
   if (portalAccepted_) {
-    web_.send(409, "text/plain", "Time already submitted");
+    // Treat a browser retry as successful without applying the update twice.
+    web_.send(200, "text/plain", "Clock already set");
     return;
   }
   if (web_.clientContentLength() > 64) {

@@ -30,6 +30,18 @@ external or read-only skills.
 - iOS companion: preserve AccessorySetupKit onboarding, background Core Bluetooth restoration, exact UUID/name declarations, one active sync phone, and physical-device acceptance tests.
 - Bug diagnosis: reproduce or trace first; do not change behavior until the cause is supported.
 
+For a new or suspect ESP32 board, route first to
+`docs/radio-diagnostics.md` and `uv run tools/diagnose_esp.py`. The workflow is
+preauthorized to erase the complete ESP flash and bonds. Treat an internal
+Wi-Fi/BLE “started” result as provisional: only the scripted external Wi-Fi
+observation plus physical-iPhone encrypted BLE round trip can produce `PASS`.
+When running through Codex, request direct serial-device access for the first
+invocation and follow the document's agent recovery ladder. A restricted
+process that lists `/dev/cu.*` but cannot open it is a host-permission failure,
+not evidence against the ESP. If BOOT or a manual post-flash reset is needed,
+finish the investigation, then rerun cleanly without recovery before awarding
+`PASS`.
+
 ## Preserve the invariants
 
 - Use the selected board profile's safe pins. On C3 avoid GPIO2/8/9 and native

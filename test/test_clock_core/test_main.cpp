@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <string.h>
 
 #include <unity.h>
 
@@ -6,6 +7,7 @@
 #include "OledDigitGlyph.h"
 #include "OledBrightness.h"
 #include "OledPerimeter.h"
+#include "PortalPage.h"
 
 void test_epoch_validation() {
   TEST_ASSERT_FALSE(clockcore::isValidEpoch(1704067199LL));
@@ -51,6 +53,17 @@ void test_payload_rejects_bad_values() {
   TEST_ASSERT_FALSE(clockcore::parseTimeSyncPayload(
       reinterpret_cast<const uint8_t*>(trailing), sizeof(trailing) - 1,
       epoch, offset));
+}
+
+void test_portal_page_submits_device_time_automatically() {
+  TEST_ASSERT_NOT_NULL(strstr(
+      portalpage::kHtml,
+      "document.addEventListener('DOMContentLoaded',()=>setTime()"));
+  TEST_ASSERT_NOT_NULL(strstr(portalpage::kHtml, "Date.now()"));
+  TEST_ASSERT_NOT_NULL(
+      strstr(portalpage::kHtml, "new Date().getTimezoneOffset()"));
+  TEST_ASSERT_NOT_NULL(strstr(portalpage::kHtml, "maxAttempts=3"));
+  TEST_ASSERT_NULL(strstr(portalpage::kHtml, "<button"));
 }
 
 void test_time_correction_requires_fresh_candidate() {
@@ -442,6 +455,7 @@ int main(int, char**) {
   RUN_TEST(test_text_time_payload);
   RUN_TEST(test_binary_time_payload_with_negative_offset);
   RUN_TEST(test_payload_rejects_bad_values);
+  RUN_TEST(test_portal_page_submits_device_time_automatically);
   RUN_TEST(test_time_correction_requires_fresh_candidate);
   RUN_TEST(test_unconfirmed_rtc_allows_first_large_correction);
   RUN_TEST(test_light_filter_is_smooth_and_bounded);
