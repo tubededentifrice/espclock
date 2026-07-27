@@ -34,14 +34,28 @@ NetworkTimeService::NetworkTimeService() : web_(80) {}
 
 void NetworkTimeService::begin(const TimeUpdateHandler handler,
                                const int16_t utcOffsetMinutes,
-                               const bool hasConfirmedSync) {
+                               const bool hasConfirmedSync,
+                               const SyncRoute syncRoute,
+                               const int64_t lastSyncUtc,
+                               const int64_t currentUtc) {
   handler_ = handler;
   utcOffsetMinutes_ = utcOffsetMinutes;
   hasConfirmedSync_ = hasConfirmedSync;
+  syncRoute_ = hasConfirmedSync ? syncRoute : SyncRoute::kUnselected;
   instance_ = this;
-  mode_ = Mode::kWaitingForBle;
-  modeStartedMs_ = millis();
-  nextAttemptMs_ = modeStartedMs_ + config::kBleWindowMs;
+  bootStartedMs_ = millis();
+  modeStartedMs_ = bootStartedMs_;
+  initialSelectionActive_ = syncRoute_ == SyncRoute::kUnselected;
+  if (initialSelectionActive_) {
+    mode_ = Mode::kWaitingForBle;
+    nextAttemptMs_ = bootStartedMs_ + config::kBleWindowMs;
+  } else {
+    mode_ = Mode::kIdle;
+    const uint32_t delayMs = clockcore::remainingResyncDelayMs(
+        syncRoute_, lastSyncUtc, currentUtc, config::kResyncIntervalMs,
+        config::kWifiResyncIntervalMs);
+    armResync(delayMs);
+  }
 
   web_.on("/", HTTP_GET, [this]() { handlePortalRoot(); });
   web_.on("/set-time", HTTP_POST, [this]() { handlePortalTime(); });
@@ -53,7 +67,17 @@ bool NetworkTimeService::wifiBusy() const {
          mode_ == Mode::kWaitingForNtp;
 }
 
-void NetworkTimeService::startPortal() {
+bool NetworkTimeService::takeBleSyncRequest() {
+  const bool pending = bleSyncRequestPending_;
+  bleSyncRequestPending_ = false;
+  return pending;
+}
+
+void NetworkTimeService::startPortal(const bool persistent) {
+  portalPersistent_ = persistent;
+  portalAccepted_ = false;
+  portalStopAtMs_ = 0;
+  scheduleAfterPortalResponse_ = false;
   char ssid[24] = {};
   snprintf(ssid, sizeof(ssid), "KidsClock-%04X",
            static_cast<unsigned>(ESP.getEfuseMac() & 0xFFFFU));
@@ -72,9 +96,13 @@ void NetworkTimeService::startPortal() {
     modeStartedMs_ = millis();
     if (portalStartAttempts_ < kMaximumPortalStartAttempts) {
       nextAttemptMs_ = modeStartedMs_ + kPortalStartRetryMs;
+    } else if (initialSelectionActive_) {
+      // A broken AP must not shorten the BLE-first onboarding contract.
+      // Keep showing PAIR and wait for the common two-minute NTP boundary.
+      nextAttemptMs_ =
+          bootStartedMs_ + config::kInitialSetupWindowMs;
     } else {
-      portalWasOffered_ = true;
-      startScan();
+      finishFailedAttempt();
     }
     return;
   }
@@ -83,14 +111,15 @@ void NetworkTimeService::startPortal() {
   web_.begin();
   mode_ = Mode::kPortal;
   modeStartedMs_ = millis();
-  portalWasOffered_ = true;
   portalStartAttempts_ = 0;
   CLOCK_DIAGNOSTIC_PRINTF(
       "[WiFi] portal start=ok ssid=%s channel=%u ip=%s dns=%s "
-      "window_ms=%lu\n",
+      "persistent=%s setup_deadline_ms=%lu\n",
       ssid, kPortalWifiChannel, ip.toString().c_str(),
       dnsStarted ? "ok" : "failed",
-      static_cast<unsigned long>(config::kPortalWindowMs));
+      persistent ? "yes" : "no",
+      static_cast<unsigned long>(
+          persistent ? 0UL : config::kInitialSetupWindowMs));
 }
 
 void NetworkTimeService::stopPortal() {
@@ -140,9 +169,11 @@ void NetworkTimeService::handlePortalTime() {
     return;
   }
   utcOffsetMinutes_ = offset;
-  if (handler_ != nullptr) {
-    handler_({epoch, utcOffsetMinutes_, TimeSource::kPortal});
+  if (handler_ == nullptr) {
+    web_.send(503, "text/plain", "Clock unavailable");
+    return;
   }
+  handler_({epoch, utcOffsetMinutes_, TimeSource::kPortal});
   portalAccepted_ = true;
   web_.send(200, "text/plain", "Clock set");
   // Give the captive browser time to receive the successful response.
@@ -153,16 +184,12 @@ void NetworkTimeService::startScan() {
 #if CLOCK_ENABLE_OPEN_WIFI_FALLBACK
   const uint32_t now = millis();
   if (wifiExhaustedForBoot_) {
-    mode_ = Mode::kIdle;
-    backgroundRefreshActive_ = false;
-    nextAttemptMs_ = now + config::kResyncIntervalMs;
+    finishFailedAttempt();
     return;
   }
-  if (mode_ == Mode::kIdle || mode_ == Mode::kWaitingForBle ||
-      mode_ == Mode::kPortal) {
-    wifiWindowStartedMs_ = now;
-    wifiAttemptsThisWindow_ = 0;
-  }
+  initialSelectionActive_ = false;
+  wifiWindowStartedMs_ = now;
+  wifiAttemptsThisWindow_ = 0;
   if (mode_ == Mode::kPortal) {
     stopPortal();
   }
@@ -189,7 +216,7 @@ void NetworkTimeService::startScan() {
     processScan(result);
   }
 #else
-  scheduleNextAttempt();
+  finishFailedAttempt();
 #endif
 }
 
@@ -227,14 +254,14 @@ void NetworkTimeService::connectNextCandidate() {
   const uint32_t now = millis();
   if (wifiExhaustedForBoot_ ||
       wifiAttemptsThisWindow_ >= config::kMaximumWifiAttemptsPerWindow ||
-      now - wifiWindowStartedMs_ >= config::kWifiWindowMs) {
-    scheduleNextAttempt();
+      wifiWindowExpired(now)) {
+    finishFailedAttempt();
     return;
   }
   const clockcore::WifiCandidate* candidate =
       candidateRanker_.at(nextCandidateIndex_);
   if (candidate == nullptr) {
-    scheduleNextAttempt();
+    finishFailedAttempt();
     return;
   }
   activeCandidateIndex_ = nextCandidateIndex_++;
@@ -243,6 +270,10 @@ void NetworkTimeService::connectNextCandidate() {
              candidate->bssid, true);
   mode_ = Mode::kConnecting;
   modeStartedMs_ = now;
+}
+
+bool NetworkTimeService::wifiWindowExpired(const uint32_t now) const {
+  return now - wifiWindowStartedMs_ >= config::kWifiWindowMs;
 }
 
 void NetworkTimeService::startNtp() {
@@ -262,8 +293,9 @@ void NetworkTimeService::ntpCallback(struct timeval*) {
 void NetworkTimeService::finishNtp(const bool success) {
   const clockcore::WifiCandidate* candidate =
       candidateRanker_.at(activeCandidateIndex_);
-  bool accepted = success;
   const int64_t candidateEpoch = static_cast<int64_t>(time(nullptr));
+  bool accepted = success && handler_ != nullptr &&
+                  clockcore::isValidEpoch(candidateEpoch);
   const int64_t expectedEpoch =
       ntpBaselineEpoch_ +
       static_cast<int64_t>((millis() - ntpBaselineMs_) / 1000UL);
@@ -282,14 +314,17 @@ void NetworkTimeService::finishNtp(const bool success) {
     rememberFailure(candidate->bssid);
   }
   if (accepted) {
-    scheduleNextAttempt();
+    // The main task will atomically apply the queued update and arm the
+    // route-specific next refresh. Stop this Wi-Fi attempt in the meantime.
+    stopNetworkActivity();
+    resyncDueArmed_ = false;
   } else {
     WiFi.disconnect(false, false);
     connectNextCandidate();
   }
 }
 
-void NetworkTimeService::scheduleNextAttempt() {
+void NetworkTimeService::stopNetworkActivity() {
   if (mode_ == Mode::kWaitingForNtp) {
     esp_sntp_stop();
     ntpSynced_ = false;
@@ -297,25 +332,54 @@ void NetworkTimeService::scheduleNextAttempt() {
   if (mode_ == Mode::kPortal) {
     stopPortal();
   }
+  WiFi.scanDelete();
   if (WiFi.getMode() != WIFI_MODE_NULL) {
     WiFi.disconnect(true, false);
   }
   mode_ = Mode::kIdle;
   bleResyncGraceActive_ = false;
-  backgroundRefreshActive_ = false;
-  nextAttemptMs_ = millis() + config::kResyncIntervalMs;
+  portalPersistent_ = false;
+  scheduleAfterPortalResponse_ = false;
+}
+
+void NetworkTimeService::armResync(const uint32_t delayMs) {
+  stopNetworkActivity();
+  resyncDueArmed_ = true;
+  nextAttemptMs_ = millis() + delayMs;
+}
+
+void NetworkTimeService::finishFailedAttempt() {
+  initialSelectionActive_ = false;
+  syncOverdue_ = hasConfirmedSync_;
+  stopNetworkActivity();
+  resyncDueArmed_ = true;
+  nextAttemptMs_ = millis() + config::kWifiResyncIntervalMs;
 }
 
 void NetworkTimeService::onExternalTimeSync(
-    const int16_t utcOffsetMinutes) {
+    const TimeSource source, const int16_t utcOffsetMinutes) {
   utcOffsetMinutes_ = utcOffsetMinutes;
   hasConfirmedSync_ = true;
-  if (mode_ == Mode::kPortal) {
+  initialSelectionActive_ = false;
+  syncOverdue_ = false;
+  const SyncRoute candidateRoute =
+      clockcore::syncRouteForSource(source);
+  if (candidateRoute == SyncRoute::kBle ||
+      syncRoute_ == SyncRoute::kUnselected) {
+    syncRoute_ = candidateRoute;
+  }
+
+  if (source == TimeSource::kPortal && mode_ == Mode::kPortal) {
+    scheduleAfterPortalResponse_ = true;
     portalStopAtMs_ = millis() + 1500UL;
   } else {
-    // BLE or the local portal is a higher-priority timezone-aware source.
-    // Abort any lower-trust opportunistic network attempt immediately.
-    scheduleNextAttempt();
+    const uint32_t intervalMs =
+        syncRoute_ == SyncRoute::kBle
+            ? config::kResyncIntervalMs
+            : config::kWifiResyncIntervalMs;
+    // BLE is always the highest-priority route and immediately tears down
+    // any captive portal, scan, association, or NTP work.
+    armResync(intervalMs);
   }
 }
 
@@ -324,10 +388,21 @@ void NetworkTimeService::tick(const bool bleConnected) {
   switch (mode_) {
     case Mode::kWaitingForBle:
       if (deadlineReached(now, nextAttemptMs_)) {
-        if (!portalWasOffered_) {
-          startPortal();
+        if (initialSelectionActive_) {
+          const clockcore::InitialSyncPhase phase =
+              clockcore::initialSyncPhase(
+                  now - bootStartedMs_, config::kBleWindowMs,
+                  config::kInitialSetupWindowMs);
+          if (phase == clockcore::InitialSyncPhase::kNtp) {
+            startScan();
+          } else if (phase ==
+                     clockcore::InitialSyncPhase::kPortal) {
+            startPortal(false);
+          }
+        } else if (syncRoute_ == SyncRoute::kPortal) {
+          startPortal(true);
         } else {
-          startScan();
+          finishFailedAttempt();
         }
       }
       break;
@@ -336,23 +411,42 @@ void NetworkTimeService::tick(const bool bleConnected) {
       web_.handleClient();
       if (portalStopAtMs_ != 0 && deadlineReached(now, portalStopAtMs_)) {
         portalStopAtMs_ = 0;
-        scheduleNextAttempt();
-      } else if (now - modeStartedMs_ >= config::kPortalWindowMs) {
+        if (scheduleAfterPortalResponse_) {
+          scheduleAfterPortalResponse_ = false;
+          armResync(config::kWifiResyncIntervalMs);
+        } else {
+          finishFailedAttempt();
+        }
+      } else if (
+          !portalPersistent_ &&
+          clockcore::initialSyncPhase(
+              now - bootStartedMs_, config::kBleWindowMs,
+              config::kInitialSetupWindowMs) ==
+              clockcore::InitialSyncPhase::kNtp) {
         startScan();
       }
       break;
     case Mode::kScanning: {
       const int result = WiFi.scanComplete();
-      if (result >= 0) {
+      if (wifiWindowExpired(now)) {
+        finishFailedAttempt();
+      } else if (result >= 0) {
         processScan(result);
       } else if (result == WIFI_SCAN_FAILED ||
                  now - modeStartedMs_ >= 15000UL) {
-        scheduleNextAttempt();
+        finishFailedAttempt();
       }
       break;
     }
     case Mode::kConnecting:
-      if (WiFi.status() == WL_CONNECTED) {
+      if (wifiWindowExpired(now)) {
+        const clockcore::WifiCandidate* candidate =
+            candidateRanker_.at(activeCandidateIndex_);
+        if (candidate != nullptr) {
+          rememberFailure(candidate->bssid);
+        }
+        finishFailedAttempt();
+      } else if (WiFi.status() == WL_CONNECTED) {
         startNtp();
       } else if (now - modeStartedMs_ >= config::kWifiConnectTimeoutMs) {
         const clockcore::WifiCandidate* candidate =
@@ -365,7 +459,9 @@ void NetworkTimeService::tick(const bool bleConnected) {
       }
       break;
     case Mode::kWaitingForNtp:
-      if (ntpSynced_) {
+      if (wifiWindowExpired(now)) {
+        finishNtp(false);
+      } else if (ntpSynced_) {
         ntpSynced_ = false;
         finishNtp(true);
       } else if (now - modeStartedMs_ >= config::kNtpTimeoutMs) {
@@ -373,18 +469,29 @@ void NetworkTimeService::tick(const bool bleConnected) {
       }
       break;
     case Mode::kIdle:
-      if (bleResyncGraceActive_ && !bleConnected) {
-        bleResyncGraceActive_ = false;
-        startScan();
-      } else if (deadlineReached(now, nextAttemptMs_)) {
-        backgroundRefreshActive_ = true;
-        if (bleConnected && !bleResyncGraceActive_) {
+      if (resyncDueArmed_ && deadlineReached(now, nextAttemptMs_)) {
+        if (syncRoute_ == SyncRoute::kBle) {
+          resyncDueArmed_ = false;
+          syncOverdue_ = true;
+          bleSyncRequestPending_ = true;
+        } else if ((syncRoute_ == SyncRoute::kPortal ||
+                    syncRoute_ == SyncRoute::kNtp) &&
+                   !bleResyncGraceActive_) {
+          syncOverdue_ = true;
           bleResyncGraceActive_ = true;
+          bleSyncRequestPending_ = true;
           nextAttemptMs_ = now + config::kBleResyncGraceMs;
           CLOCK_DIAGNOSTIC_PRINTF(
-              "[WiFi] deferring fallback for connected BLE grace_ms=%lu\n",
-              static_cast<unsigned long>(config::kBleResyncGraceMs));
+              "[WiFi] route=%u waiting for BLE grace_ms=%lu connected=%s\n",
+              static_cast<unsigned>(syncRoute_),
+              static_cast<unsigned long>(config::kBleResyncGraceMs),
+              bleConnected ? "yes" : "no");
+        } else if (syncRoute_ == SyncRoute::kPortal) {
+          resyncDueArmed_ = false;
+          bleResyncGraceActive_ = false;
+          startPortal(true);
         } else {
+          resyncDueArmed_ = false;
           bleResyncGraceActive_ = false;
           startScan();
         }

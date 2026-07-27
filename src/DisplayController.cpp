@@ -131,12 +131,14 @@ void DisplayController::sampleLight() {
   }
 }
 
-void DisplayController::showClock(const TimeKeeper& clock) {
+void DisplayController::showClock(const TimeKeeper& clock,
+                                  const bool syncOverdue) {
   struct tm local = {};
   clock.localTime(local);
   display_.showTime(static_cast<uint8_t>(local.tm_hour),
                     static_cast<uint8_t>(local.tm_min),
-                    static_cast<uint8_t>(local.tm_sec), colonOn_);
+                    static_cast<uint8_t>(local.tm_sec), colonOn_,
+                    syncOverdue);
 }
 
 void DisplayController::showMessage(const DisplayMessage message) {
@@ -144,7 +146,8 @@ void DisplayController::showMessage(const DisplayMessage message) {
 }
 
 void DisplayController::tick(const TimeKeeper& clock,
-                             const UserDisplayState state) {
+                             const UserDisplayState state,
+                             const bool syncOverdue) {
   sampleLight();
   if (!displayAvailable_) {
     return;
@@ -160,7 +163,7 @@ void DisplayController::tick(const TimeKeeper& clock,
   colonOn_ = frame.colonOn;
   switch (frame.content) {
     case clockcore::DisplayContent::kTime:
-      showClock(clock);
+      showClock(clock, syncOverdue);
       break;
     case clockcore::DisplayContent::kPairing:
       showMessage(DisplayMessage::kPairing);

@@ -25,12 +25,21 @@ case.
 
 1. Reads UTC from a DS3231 when one is fitted and valid; otherwise it starts
    without inventing a time and waits for a synchronization source.
-2. Advertises `KidsClock-xxxx` over BLE. The included iPhone companion app writes UTC plus the current UTC offset, reconnects in the background, and answers six-hour sync requests.
-3. If BLE has not already synchronized this boot, starts a two-minute no-install Wi-Fi portal named `KidsClock-xxxx` after the two-minute onboarding window. Joining it lets the phone browser transfer its time and offset automatically, including after travel.
-4. As a last resort, tries open Wi-Fi access points in signal-strength order, never retrying a failed BSSID in the same boot, and requests UTC from NTP.
-5. Keeps time in the ESP while powered, mirrors it to an available RTC, and
-   silently reopens bounded synchronization opportunities every six hours.
-6. Samples room light about once per second, filters it over several seconds, and adjusts the display through eight brightness levels.
+2. Advertises `KidsClock-xxxx` over BLE continuously. On a clock without a
+   selected synchronization route, BLE runs alone for the first 10 seconds.
+3. From 10 seconds until two minutes after boot, also offers the no-install
+   `KidsClock-xxxx` captive portal while BLE remains available. Loading its
+   page transfers the phone's time and offset automatically.
+4. If neither phone route succeeds by two minutes, tries open Wi-Fi access
+   points in signal-strength order for a bounded window and requests UTC from
+   NTP, never retrying a failed BSSID in the same boot.
+5. Persists the first successful route. BLE routes refresh every six hours;
+   portal and NTP routes wait 24 hours and give BLE a 90-second opportunity
+   before using Wi-Fi again. A later successful BLE update promotes any Wi-Fi
+   route to BLE and immediately stops Wi-Fi.
+6. Keeps time in the ESP while powered and mirrors it to an available RTC.
+7. Samples room light about once per second, filters it over several seconds,
+   and adjusts the display through eight brightness levels.
 
 Radio failures never stop the clock or blank a valid display.
 
@@ -43,7 +52,7 @@ Approving a Bluetooth pairing authorizes a connection; it does not universally m
 - The ESP32-C3 has BLE, not Bluetooth Classic PAN, so it cannot consume Bluetooth tethering.
 - NTP provides UTC only. It does not reveal the local timezone.
 
-The repository therefore includes an iOS 18+ [companion app](ios/README.md), an encrypted/bonded BLE write service, and a universal no-app captive-portal fallback. The app uses AccessorySetupKit onboarding and a long-lived low-duty connection so the clock can request time about every six hours. The portal remains the reliable no-install path on a new phone. Open Wi-Fi/NTP refreshes UTC but retains the last phone-confirmed UTC offset. Concurrent updates are arbitrated atomically in the order BLE, portal, then NTP, so a lower-trust callback cannot overwrite a pending higher-trust update.
+The repository therefore includes an iOS 18+ [companion app](ios/README.md), an encrypted/bonded BLE write service, and a universal no-app captive-portal fallback. The app uses AccessorySetupKit onboarding and a long-lived low-duty connection so the clock can request time about every six hours. The clock remembers which route first synchronized it and avoids powering unrelated Wi-Fi paths afterward. BLE remains available as the only automatic route upgrade. Open Wi-Fi/NTP refreshes UTC but retains the last phone-confirmed UTC offset. Concurrent updates are arbitrated atomically in the order BLE, portal, then NTP, so a lower-trust callback cannot overwrite a pending higher-trust update.
 
 This is an honest limit of phone operating systems and profiles, not an ESP32 coding omission. See [hardware research](docs/hardware-research.md) and the [adversarial design review](docs/design-review.md) for sources and deeper tradeoffs.
 
@@ -295,24 +304,36 @@ ask that connected app for fresh time about every six hours. See the
 
 ### RTC already contains valid time
 
-- The clock displays it immediately.
-- `PAIR` appears briefly during the two-minute BLE-first/onboarding opportunity.
+- With a previously selected route, the clock displays it immediately.
+- With no previously selected route, `PAIR` marks the two-minute onboarding
+  sequence: BLE alone for 10 seconds, then BLE plus the captive portal for
+  the remainder. The retained RTC continues running underneath and returns
+  to the display as soon as a route succeeds or the initial fallback attempt
+  ends.
 - BLE advertising remains available for already bonded clients even after the normal time display returns. It uses the proven 30–60 ms discovery cadence during the two-minute onboarding window, then an 800–1000 ms low-duty cadence for later reconnects. New, unbonded phones are accepted for two minutes after boot so Apple's accessory picker has time to complete.
-- If BLE has not already synchronized, the two-minute `KidsClock-xxxx` portal is offered after two minutes so another phone can update the timezone without an app. Valid time remains visible most of the time.
-- If no phone supplies a fresh time, the clock then tries last-resort open Wi-Fi/NTP.
+- At 10 seconds, the `KidsClock-xxxx` portal is added without stopping BLE.
+- At two minutes, an unsynchronized clock stops the setup portal and shows
+  `SEARCHING WIFI` on OLED or `WiFi` on TM1637 while trying last-resort
+  open-Wi-Fi/NTP.
+- Once a route succeeds, later boots and refreshes use only that route, except
+  that an accepted BLE update may always promote a portal/NTP route.
 
 ### RTC is new, missing, or lost power
 
 1. The display shows `PAIR` while BLE advertises.
-2. After two minutes, it shows `SEt` and starts the open Wi-Fi AP `KidsClock-xxxx`.
-3. On a phone, join that network. As soon as its captive page loads, it reads
+2. After 10 seconds, the open Wi-Fi AP `KidsClock-xxxx` starts alongside BLE;
+   the display continues to show `PAIR`.
+3. On a phone, join that network before the two-minute mark. As soon as its captive page loads, it reads
    the phone's current time and offset and sets the clock automatically.
 4. If the captive page does not open, browse to
    [http://192.168.4.1](http://192.168.4.1). Loading that page is sufficient;
    there is no button or manual time entry.
 5. The page sends only Unix UTC and the phone's current UTC offset. It sends no account, Wi-Fi password, location coordinate, or personal data.
+6. If neither BLE nor the portal succeeds by two minutes after boot, the
+   clock searches open Wi-Fi for a bounded maximum of 10 minutes and asks NTP
+   for UTC.
 
-The setup AP closes after success or after two minutes. With no RTC, the clock
+The setup AP closes after success or at the two-minute fallback. With no RTC, the clock
 continues from the ESP system clock only until USB power is removed. A later
 power cycle deliberately returns to the no-time flow and resynchronizes; the
 persisted UTC offset alone is not treated as a valid instant.
@@ -325,17 +346,22 @@ If the RTC is later wrong by more than five minutes, leave the clock powered
 and hold the board's existing `BOOT` button for five seconds. The OLED shows
 `RESET`; the four-digit TM1637 approximates `rSt`. Release the button when the
 message appears. The full-size ESP32 uses GPIO0 and the C3 uses GPIO9. The
-firmware clears the confirmed-sync marker, stored offset, and BLE bonds and
-restarts. Do **not** reset or apply power while BOOT is held; that enters the
-board's download loader. After restart, use the BLE window or portal to set the
-correct time. The RTC itself is left intact so the screen can continue to show
+firmware clears the confirmed-sync marker, stored route and offset, and BLE
+bonds, then restarts. Do **not** reset or apply power while BOOT is held; that enters the
+board's download loader. After restart, use BLE or the portal to set the
+correct time and select a new route. The RTC itself is left intact so the screen can continue to show
 its best available value until the correction arrives.
 
 This recessed service gesture is not part of normal use. Make the onboard button reachable through a tool/paperclip pinhole in the eventual case.
 
 ### After travel to a different timezone
 
-Keep the clock near its authorized iPhone companion; it writes the new time/offset on reconnect. Otherwise, wait two minutes after boot and join the offered `KidsClock-xxxx` setup portal. An NTP-only result refreshes UTC but cannot determine civil timezone by itself.
+Keep the clock near its authorized iPhone companion; it writes the new
+time/offset on reconnect. A clock whose selected route is the captive portal
+reopens that portal when its 24-hour refresh becomes due. An NTP-route clock
+retries NTP on the same cadence. To choose a different non-BLE route, use the
+five-second BOOT recovery gesture. An NTP-only result refreshes UTC but cannot
+determine civil timezone by itself.
 
 The current firmware stores a validated offset in 15-minute-capable minutes, not a whole-hour approximation, so zones such as `+05:30` and `+05:45` work. It does not contain the world's timezone/DST database; a phone sync is required after an offset/DST change when the clock has no richer timezone source.
 
@@ -346,16 +372,19 @@ The current firmware stores a validated offset in 15-minute-capable minutes, not
 | OLED `HH:MM`, steady colon | Valid local time; at brightness levels 1–7, even minutes fill the perimeter clockwise and odd minutes erase the same path in 60 equal steps; full-night level 0 switches to a sparse dot-matrix face and suppresses the decorative perimeter |
 | TM1637 `HH:MM`, one blink per second | Phone-confirmed local offset this boot |
 | TM1637 `HH MM`, brief colon pulse every two seconds | Valid UTC with a retained, not-yet-confirmed timezone offset |
-| `PAIR` alternating with time | Boot-time BLE onboarding opportunity |
-| `SET` on OLED / `SEt` on TM1637 | No-app phone setup portal is active |
-| `WIFI` / seven-segment approximation | Trying an open network/NTP |
+| Steady `PAIR` | Initial two-minute onboarding; after 10 seconds the captive portal is also active |
+| `SET` on OLED / `SEt` on TM1637 | A selected portal route is active while no valid time can be displayed |
+| OLED `SEARCHING WIFI` / TM1637 `WiFi` approximation | Initial open-network/NTP fallback |
+| OLED 3×3 square at the top-right | A periodic refresh is overdue or in progress; the normal time remains steady |
 | `----` | No trustworthy time is available yet |
 | `RESET` on OLED / `rSt` on TM1637 | BOOT recovery button is being held; keep holding for five seconds, then release |
 
-Boot-time setup messages yield to a valid time most of the time. Later periodic
-refreshes never replace valid time with `PAIR`, `SET`, `WIFI`, `SYNC`, or any
-other radio status. If the authorized phone is away, the clock continues
-normally and retries on the next scheduled refresh.
+The initial `PAIR` message remains steady for route selection; it does not
+blink or alternate with the retained time. Later periodic refreshes never
+replace or blink the valid time. OLED brightness levels 1–7
+show only the static 3×3 top-right marker while a refresh is overdue; night
+level 0 suppresses the marker entirely. TM1637 keeps its normal clock face and
+adds no refresh animation.
 
 ## BLE time service
 
@@ -410,6 +439,8 @@ This is deliberately bounded and contains no credentials:
 - a failed **BSSID** is remembered for this boot and never retried;
 - if the fixed 24-entry failure table fills, open-Wi-Fi fallback is disabled for the rest of that boot;
 - association and NTP have fixed timeouts;
+- each NTP fallback window is capped at 10 minutes and NTP-route failures then
+  back off for 24 hours;
 - captive portals are not bypassed and terms are not accepted automatically;
 - no SSID/password is saved;
 - the station MAC is randomized once per boot before joining opportunistic networks;
@@ -455,7 +486,9 @@ Tune the following in `include/AppConfig.h` or with PlatformIO `-D` flags:
 
 - pin assignments and BH1750 address;
 - main-loop delay and optional CPU frequency;
-- BLE advertising, portal, Wi-Fi, NTP, resync, and BLE-first grace timings;
+- BLE advertising, 10-second BLE-only grace, two-minute initial setup,
+  six-hour BLE resync, 24-hour Wi-Fi resync, 90-second BLE promotion grace,
+  and bounded NTP timings;
 - light sample interval;
 - application and verbose light diagnostics;
 - fallback UTC offset;
@@ -476,14 +509,19 @@ OLED perimeter, but its one-minute cadence at levels 1–7 is unchanged. These
 changes do not alter the 250 ms display policy, TM1637 colon cadence, portal
 service, recovery gesture, or BLE callbacks.
 
-At each later six-hour refresh, an already connected iPhone gets a 90-second
-BLE-first grace period covering the firmware's bounded notification retries.
-Open-Wi-Fi scanning starts only if that BLE path disconnects or produces no
-accepted update. A successful BLE update resets the normal six-hour schedule.
-The entire later refresh is visually silent while valid time is available,
-including BLE retries, Wi-Fi scan/NTP fallback, and timeouts. A missing phone or
-failed fallback simply returns to the normal six-hour schedule. This grace does
-not delay the boot onboarding window or captive portal.
+The selected route controls later radio use. BLE routes request a refresh every
+six hours and never start Wi-Fi. Portal and NTP routes wait 24 hours, request
+BLE first, and allow 90 seconds for an accepted BLE update. Success promotes
+the route to BLE and shuts Wi-Fi down; otherwise a portal route leaves its
+SoftAP/page available until a phone loads it, while an NTP route performs one
+bounded open-network attempt of at most 10 minutes and then backs off for
+another 24 hours. Failed BSSIDs remain excluded for the rest of that boot.
+
+Periodic refresh never replaces or blinks a valid clock face. OLED levels 1–7
+add a static 3×3 top-right stale-time marker until a refresh succeeds. Level 0
+and TM1637 add no light or animation. BLE advertising and bonded reconnect
+remain available throughout Wi-Fi activity; the ESP32 coexistence scheduler
+time-shares the single 2.4 GHz radio.
 
 Automatic light sleep is not enabled by the pinned precompiled Arduino-ESP32
 framework, whose power-management component is disabled. Deep sleep is
@@ -530,7 +568,7 @@ Do not close or pot the case until every applicable physical item passes.
 
 ### Automated
 
-- [x] `uv run pio test -e native` passes (26/26).
+- [x] `uv run pio test -e native` passes (28/28).
 - [x] `uv run python -m unittest discover -s tools/tests` passes the nine
   diagnostic-runner parser and classification tests.
 - [x] `uv run pio run -e esp32-devkit-oled-128x64` completes.
@@ -547,7 +585,10 @@ Do not close or pot the case until every applicable physical item passes.
 - [ ] USB cold-start succeeds 20 times without pressing a button.
 - [ ] Both OLED profiles render correct, centered four-digit time, steady colon,
   the full-size sparse level-0 night face, the level-1–7 top-center 60-step
-  alternating perimeter, and all status words.
+  alternating perimeter, the two-line `SEARCHING WIFI` message, and all other
+  status words.
+- [ ] The 3×3 overdue-sync marker occupies the top-right pixels at levels 1–7,
+  remains steady through BLE/portal/NTP retries, and is absent at level 0.
 - [ ] 0.96-inch and 0.91-inch displays are compared at two metres in daylight.
 - [ ] Minimum brightness remains readable but does not illuminate a dark bedroom.
 - [ ] BH1750 responds smoothly over dark, bedroom, room, and daylight conditions.
@@ -573,6 +614,15 @@ Do not close or pot the case until every applicable physical item passes.
 - [ ] Invalid RTC never displays a plausible invented time.
 - [ ] Portal sync starts on page load without a tap and works on at least one
   current iPhone and one current Android phone.
+- [ ] On a cleared clock, BLE runs alone for 10 seconds, then coexists with the
+  setup portal until the two-minute open-Wi-Fi/NTP fallback.
+- [ ] BLE, portal, and NTP first successes persist the matching route across
+  reboot; a later BLE success promotes either Wi-Fi route and stops Wi-Fi.
+- [ ] BLE routes refresh at six hours without starting Wi-Fi. Portal/NTP routes
+  wait 24 hours, allow the 90-second BLE promotion grace, then use only their
+  selected Wi-Fi route.
+- [ ] An overdue portal route leaves the setup AP/page available until success;
+  an NTP route is bounded to 10 minutes and then backs off for 24 hours.
 - [ ] BLE write works after first bond and after reconnect.
 - [ ] A second family phone can also bond/write.
 - [ ] All 16 bond/notification slots survive reboot/reconnect; adding or cancelling a 17th pairing follows the documented eviction/recovery behavior.
@@ -593,9 +643,9 @@ Do not close or pot the case until every applicable physical item passes.
   open candidates without rescanning between failures.
 - [ ] Captive/no-Internet open networks time out and return to the clock.
 - [ ] With all radios unavailable, valid RTC time remains displayed.
-- [ ] With the authorized phone out of range for two consecutive six-hour
-  refreshes, the display never leaves the normal time and the clock retries on
-  both schedules.
+- [ ] With the selected source unavailable for two refresh cycles, the display
+  never leaves or blinks the normal time; only the non-night OLED marker
+  indicates that synchronization is overdue.
 
 ### Enclosure/RF
 
@@ -607,6 +657,12 @@ Do not close or pot the case until every applicable physical item passes.
 
 - The included app is iPhone-only and requires iOS 18+. iOS background BLE is event-driven and best-effort: force-quitting the app, disabling Bluetooth, leaving range, expired development signing, or some reboot/first-unlock states stop updates until the app can run again. The DS3231 and captive portal are the resilience layers.
 - One iPhone owns the persistent BLE sync connection at a time. Other authorized family phones can take over after automatic sync is disabled on the active phone.
+- The first successful source is sticky to avoid unnecessary radio power:
+  portal and NTP routes do not automatically switch to one another. BLE may
+  always promote either route; the BOOT recovery gesture clears the route.
+- When a portal-route refresh is overdue, its intentionally open local setup
+  AP remains available until a valid update arrives. It exposes only the
+  bounded time-submission page, but nearby devices can see and join the AP.
 - The current phone payload stores the present UTC offset, not a complete IANA timezone/DST rule. Re-sync after travel or DST changes.
 - Open Wi-Fi cannot lawfully or technically bypass captive-portal terms, and NTP is not authenticated.
 - Cheap C3, DS3231, BH1750, OLED, and large TM1637 modules vary. The 0.91-inch

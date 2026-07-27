@@ -26,4 +26,9 @@ inline bool usesSparseNightFace(const uint8_t level) {
   return boundedLevel(level) == 0;
 }
 
+inline bool showsSyncOverdueIndicator(const uint8_t level,
+                                      const bool syncOverdue) {
+  return syncOverdue && !usesSparseNightFace(level);
+}
+
 }  // namespace oledbrightness

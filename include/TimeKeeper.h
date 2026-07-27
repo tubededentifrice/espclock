@@ -14,6 +14,8 @@ class TimeKeeper {
   int64_t utcNow() const;
   int16_t utcOffsetMinutes() const { return utcOffsetMinutes_; }
   bool timezoneFresh() const { return timezoneFresh_; }
+  SyncRoute syncRoute() const { return syncRoute_; }
+  int64_t lastSyncUtc() const { return lastSyncUtc_; }
   void localTime(struct tm& result) const;
   bool rtcAvailable() const { return rtcAvailable_; }
   void clearSyncTrust();
@@ -21,7 +23,9 @@ class TimeKeeper {
  private:
   RTC_DS3231 rtc_;
   Preferences preferences_;
+  int64_t lastSyncUtc_ = 0;
   int16_t utcOffsetMinutes_ = 0;
+  SyncRoute syncRoute_ = SyncRoute::kUnselected;
   bool rtcAvailable_ = false;
   bool timezoneFresh_ = false;
   bool hasConfirmedSync_ = false;

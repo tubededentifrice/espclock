@@ -307,27 +307,28 @@ full-brightness boot flash is acceptable in a dark bedroom.
 
 Use explicit non-blocking states with deadlines:
 
-`BOOT_SELF_TEST → RTC_DISPLAY → BLE_SYNC_WINDOW → OPTIONAL_WIFI_FALLBACK →
-NORMAL_DISPLAY`, with periodic transitions back to a bounded sync window.
-Display valid RTC time immediately; networking must never leave the screen blank.
+`BOOT_SELF_TEST → RTC_DISPLAY → BLE_ONLY → BLE_PLUS_PORTAL →
+OPTIONAL_OPEN_WIFI_NTP → ROUTE_SPECIFIC_REFRESH`. A boot with an already
+selected route displays valid RTC time immediately. First route selection
+instead keeps a steady `PAIR` indication for its two-minute onboarding
+sequence; networking must never leave the screen blank.
 
-Recommended initial policy for testing is a 60–120 second BLE opportunity,
-bounded Wi-Fi fallback after that, and a resync opportunity every six hours plus
-on every boot. The exact values are product tuning, not correctness assumptions.
-Always retain the last good time while a source is being tried. Use watchdogs
-and ensure all failure paths free BLE/Wi-Fi scan results and return to display
-service.
+**Selected source and power disposition:** a cleared clock gives BLE 10 seconds
+alone, then runs BLE and the captive portal together until two minutes after
+boot. Only then may it try open-Wi-Fi/NTP, bounded to 10 minutes. The first
+successful BLE, portal, or NTP source is persisted as the refresh route. BLE
+routes refresh every six hours without starting Wi-Fi. Portal and NTP routes
+refresh every 24 hours after a 90-second BLE promotion opportunity; portal
+refresh leaves its AP available until success, while NTP failure backs off for
+another day. A later accepted BLE write promotes either Wi-Fi route and
+immediately tears Wi-Fi down. Failed open BSSIDs remain excluded for the
+current boot.
 
-**Selected power disposition:** retain the proven fast BLE advertisement
-during the two-minute new-phone window, then use low-duty connectable
-advertising for bonded reconnects. At periodic refresh, allow the connected BLE
-owner to exhaust its bounded notification retries before starting Wi-Fi. Rank a
-bounded set of open BSSIDs from one scan and attempt that set without repeating
-the scan after each failure. The visible state vocabulary, boot portal timing,
-source priority, and per-boot BSSID exclusion remain unchanged. Later periodic
-refreshes are deliberately silent while valid time is available: BLE grace,
-Wi-Fi scan/NTP fallback, and timeout states never replace the clock display,
-and a missing phone simply leads to another scheduled refresh.
+BLE retains its proven fast advertisement throughout the two-minute new-phone
+window, then uses low-duty connectable advertising for bonded reconnects.
+Periodic refresh never replaces or blinks valid time. OLED levels above night
+mode add one static 3×3 top-right overdue marker; full-night level 0 and TM1637
+add no refresh light or animation.
 
 The four-digit display needs an unambiguous but quiet state vocabulary documented
 in the README, for example:
@@ -339,9 +340,9 @@ in the README, for example:
 - persistent subtle dot: UTC/RTC valid but timezone stale;
 - unmistakable startup pattern: RTC invalid.
 
-Do not alternate away from the time continuously. A parent should be able to
-diagnose the state without a serial cable, while a sleeping child should not see
-a light show.
+Outside the explicit first-route `PAIR` sequence, do not alternate away from
+valid time. A parent should be able to diagnose the state without a serial
+cable, while a sleeping child should not see a light show.
 
 ## Acceptance test checklist
 
@@ -349,8 +350,9 @@ No item below should be replaced by “works on my phone.”
 
 ### Time and timezone
 
-- [ ] Cold boot with valid RTC shows time within two seconds, regardless of
-      radio availability.
+- [ ] Cold boot with valid RTC and a selected route shows time within two
+      seconds, regardless of radio availability; a cleared route instead
+      shows steady `PAIR` for the documented onboarding sequence.
 - [ ] Cold boot with invalid/missing RTC never shows a plausible invented time;
       it shows the invalid/pairing state.
 - [ ] BLE synchronization is demonstrated on iOS 18 and current iOS, including
@@ -421,7 +423,8 @@ No item below should be replaced by “works on my phone.”
 - [ ] Cover/uncover the sensor, shine the display toward it, disconnect it, and
       inject bad readings; feedback and failure do not cause bright flashes.
 - [ ] Boot, pairing, and error indications all respect the current brightness
-      ceiling; periodic resync with valid time shows only the normal clock.
+      ceiling; periodic resync with valid time shows only the normal clock plus
+      the steady 3×3 OLED marker above night level 0.
 
 ### Electrical, thermal, and mechanical
 

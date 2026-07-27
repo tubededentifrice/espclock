@@ -67,7 +67,7 @@
 #endif
 
 #ifndef CLOCK_BLE_WINDOW_MS
-#define CLOCK_BLE_WINDOW_MS 120000UL
+#define CLOCK_BLE_WINDOW_MS 10000UL
 #endif
 
 #ifndef CLOCK_NEW_BLE_PAIRING_WINDOW_MS
@@ -94,8 +94,8 @@
 #define CLOCK_BLE_RESYNC_GRACE_MS 90000UL
 #endif
 
-#ifndef CLOCK_PORTAL_WINDOW_MS
-#define CLOCK_PORTAL_WINDOW_MS 120000UL
+#ifndef CLOCK_INITIAL_SETUP_WINDOW_MS
+#define CLOCK_INITIAL_SETUP_WINDOW_MS 120000UL
 #endif
 
 #ifndef CLOCK_WIFI_CONNECT_TIMEOUT_MS
@@ -108,6 +108,14 @@
 
 #ifndef CLOCK_RESYNC_INTERVAL_MS
 #define CLOCK_RESYNC_INTERVAL_MS (6UL * 60UL * 60UL * 1000UL)
+#endif
+
+#ifndef CLOCK_WIFI_RESYNC_INTERVAL_MS
+#define CLOCK_WIFI_RESYNC_INTERVAL_MS (24UL * 60UL * 60UL * 1000UL)
+#endif
+
+#ifndef CLOCK_WIFI_WINDOW_MS
+#define CLOCK_WIFI_WINDOW_MS (10UL * 60UL * 1000UL)
 #endif
 
 #ifndef CLOCK_LIGHT_SAMPLE_MS
@@ -158,10 +166,13 @@ constexpr uint32_t kBleSlowAdvertisingMinMs =
 constexpr uint32_t kBleSlowAdvertisingMaxMs =
     CLOCK_BLE_SLOW_ADV_MAX_MS;
 constexpr uint32_t kBleResyncGraceMs = CLOCK_BLE_RESYNC_GRACE_MS;
-constexpr uint32_t kPortalWindowMs = CLOCK_PORTAL_WINDOW_MS;
+constexpr uint32_t kInitialSetupWindowMs =
+    CLOCK_INITIAL_SETUP_WINDOW_MS;
 constexpr uint32_t kWifiConnectTimeoutMs = CLOCK_WIFI_CONNECT_TIMEOUT_MS;
 constexpr uint32_t kNtpTimeoutMs = CLOCK_NTP_TIMEOUT_MS;
 constexpr uint32_t kResyncIntervalMs = CLOCK_RESYNC_INTERVAL_MS;
+constexpr uint32_t kWifiResyncIntervalMs =
+    CLOCK_WIFI_RESYNC_INTERVAL_MS;
 constexpr uint32_t kLightSampleMs = CLOCK_LIGHT_SAMPLE_MS;
 constexpr uint32_t kPairingDisplayMs = CLOCK_PAIRING_DISPLAY_MS;
 constexpr uint8_t kRecoveryButtonPin = CLOCK_RECOVERY_BUTTON_PIN;
@@ -170,11 +181,19 @@ constexpr uint16_t kEarliestValidYear = 2024;
 constexpr uint16_t kLatestValidYear = 2099;
 constexpr uint8_t kMaximumFailedNetworks = 24;
 constexpr uint8_t kMaximumWifiAttemptsPerWindow = 6;
-constexpr uint32_t kWifiWindowMs = 120000UL;
+constexpr uint32_t kWifiWindowMs = CLOCK_WIFI_WINDOW_MS;
 
 static_assert(CLOCK_DISPLAY_DRIVER == CLOCK_DISPLAY_TM1637 ||
                   CLOCK_DISPLAY_DRIVER == CLOCK_DISPLAY_SSD1306,
               "Unsupported CLOCK_DISPLAY_DRIVER");
+static_assert(CLOCK_INITIAL_SETUP_WINDOW_MS > CLOCK_BLE_WINDOW_MS,
+              "Initial setup window must outlast the BLE-only grace");
+static_assert(CLOCK_INITIAL_SETUP_WINDOW_MS < 0x80000000UL &&
+                  CLOCK_BLE_RESYNC_GRACE_MS < 0x80000000UL &&
+                  CLOCK_RESYNC_INTERVAL_MS < 0x80000000UL &&
+                  CLOCK_WIFI_RESYNC_INTERVAL_MS < 0x80000000UL &&
+                  CLOCK_WIFI_WINDOW_MS < 0x80000000UL,
+              "Monotonic deadlines must remain below half of millis() range");
 
 #if CLOCK_DISPLAY_DRIVER == CLOCK_DISPLAY_SSD1306
 static_assert(CLOCK_OLED_WIDTH == 128,

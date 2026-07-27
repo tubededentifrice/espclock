@@ -15,6 +15,22 @@ bool isValidUtcOffset(int offsetMinutes);
 bool isPlausibleCorrection(int64_t currentEpoch, int64_t candidateEpoch);
 bool isAcceptableCorrection(bool hasConfirmedSync, int64_t currentEpoch,
                             int64_t candidateEpoch);
+bool isValidSyncRouteValue(uint8_t value);
+SyncRoute syncRouteForSource(TimeSource source);
+uint32_t remainingResyncDelayMs(SyncRoute route, int64_t lastSyncEpoch,
+                                int64_t currentEpoch,
+                                uint32_t bleIntervalMs,
+                                uint32_t wifiIntervalMs);
+
+enum class InitialSyncPhase : uint8_t {
+  kBleOnly,
+  kPortal,
+  kNtp,
+};
+
+InitialSyncPhase initialSyncPhase(uint32_t elapsedMs,
+                                  uint32_t bleOnlyWindowMs,
+                                  uint32_t setupWindowMs);
 
 // Accepts either "epoch,offset" UTF-8 text or a 12-byte little-endian packet:
 // version(1), Unix UTC seconds(8), signed UTC offset minutes(2), flags(1).
@@ -39,7 +55,7 @@ UserDisplayState selectUserDisplayState(bool recoveryButtonHeld,
                                         bool portalActive, bool wifiBusy,
                                         bool hasValidTime,
                                         bool pairingAvailable,
-                                        bool backgroundRefreshActive);
+                                        bool syncOverdue);
 
 DisplayFrame makeDisplayFrame(uint32_t nowMs, bool hasValidTime,
                               bool timezoneFresh, UserDisplayState state,

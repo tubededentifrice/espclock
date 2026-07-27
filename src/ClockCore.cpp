@@ -34,6 +34,61 @@ bool isAcceptableCorrection(const bool hasConfirmedSync,
           isPlausibleCorrection(currentEpoch, candidateEpoch));
 }
 
+bool isValidSyncRouteValue(const uint8_t value) {
+  return value >= static_cast<uint8_t>(SyncRoute::kBle) &&
+         value <= static_cast<uint8_t>(SyncRoute::kNtp);
+}
+
+SyncRoute syncRouteForSource(const TimeSource source) {
+  switch (source) {
+    case TimeSource::kBle:
+      return SyncRoute::kBle;
+    case TimeSource::kPortal:
+      return SyncRoute::kPortal;
+    case TimeSource::kNtp:
+      return SyncRoute::kNtp;
+    case TimeSource::kRtc:
+    default:
+      return SyncRoute::kUnselected;
+  }
+}
+
+uint32_t remainingResyncDelayMs(const SyncRoute route,
+                                const int64_t lastSyncEpoch,
+                                const int64_t currentEpoch,
+                                const uint32_t bleIntervalMs,
+                                const uint32_t wifiIntervalMs) {
+  uint32_t intervalMs = 0;
+  if (route == SyncRoute::kBle) {
+    intervalMs = bleIntervalMs;
+  } else if (route == SyncRoute::kPortal ||
+             route == SyncRoute::kNtp) {
+    intervalMs = wifiIntervalMs;
+  }
+  if (intervalMs == 0 || !isValidEpoch(lastSyncEpoch) ||
+      !isValidEpoch(currentEpoch) || currentEpoch < lastSyncEpoch) {
+    return 0;
+  }
+  const int64_t elapsedSeconds = currentEpoch - lastSyncEpoch;
+  const uint64_t elapsedMs =
+      static_cast<uint64_t>(elapsedSeconds) * 1000ULL;
+  return elapsedMs >= intervalMs
+             ? 0
+             : intervalMs - static_cast<uint32_t>(elapsedMs);
+}
+
+InitialSyncPhase initialSyncPhase(const uint32_t elapsedMs,
+                                  const uint32_t bleOnlyWindowMs,
+                                  const uint32_t setupWindowMs) {
+  if (elapsedMs < bleOnlyWindowMs) {
+    return InitialSyncPhase::kBleOnly;
+  }
+  if (elapsedMs < setupWindowMs) {
+    return InitialSyncPhase::kPortal;
+  }
+  return InitialSyncPhase::kNtp;
+}
+
 bool parseTimeSyncPayload(const uint8_t* data, const size_t length,
                           int64_t& epoch, int16_t& utcOffsetMinutes) {
   if (data == nullptr || length == 0) {
@@ -90,21 +145,21 @@ bool parseTimeSyncPayload(const uint8_t* data, const size_t length,
 UserDisplayState selectUserDisplayState(
     const bool recoveryButtonHeld, const bool portalActive,
     const bool wifiBusy, const bool hasValidTime,
-    const bool pairingAvailable, const bool backgroundRefreshActive) {
+    const bool pairingAvailable, const bool syncOverdue) {
   if (recoveryButtonHeld) {
     return UserDisplayState::kRecovery;
   }
-  if (hasValidTime && backgroundRefreshActive) {
+  if (hasValidTime && syncOverdue) {
     return UserDisplayState::kClock;
+  }
+  if (pairingAvailable) {
+    return UserDisplayState::kPairing;
   }
   if (portalActive) {
     return UserDisplayState::kPortal;
   }
   if (wifiBusy) {
     return UserDisplayState::kWifi;
-  }
-  if (pairingAvailable) {
-    return UserDisplayState::kPairing;
   }
   return hasValidTime ? UserDisplayState::kClock
                       : UserDisplayState::kNoTime;
@@ -125,10 +180,7 @@ DisplayFrame makeDisplayFrame(const uint32_t nowMs,
 
   switch (state) {
     case UserDisplayState::kPairing:
-      return {hasValidTime && (nowMs % 4000U) >= pairingDisplayMs
-                  ? DisplayContent::kTime
-                  : DisplayContent::kPairing,
-              colonOn};
+      return {DisplayContent::kPairing, colonOn};
     case UserDisplayState::kPortal:
       return {hasValidTime && (nowMs % 4000U) >= pairingDisplayMs
                   ? DisplayContent::kTime

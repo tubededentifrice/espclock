@@ -8,10 +8,16 @@
 
 bool TimeKeeper::begin() {
   preferences_.begin("kids-clock", false);
-  const int64_t lastSync = preferences_.getLong64("last-sync", 0);
+  lastSyncUtc_ = preferences_.getLong64("last-sync", 0);
   hasConfirmedSync_ =
       preferences_.getBool("confirmed", false) &&
-      clockcore::isValidEpoch(lastSync);
+      clockcore::isValidEpoch(lastSyncUtc_);
+  const uint8_t storedRoute =
+      preferences_.getUChar("sync-source", 0);
+  if (hasConfirmedSync_ &&
+      clockcore::isValidSyncRouteValue(storedRoute)) {
+    syncRoute_ = static_cast<SyncRoute>(storedRoute);
+  }
   utcOffsetMinutes_ = preferences_.getShort(
       "utc-offset", config::kDefaultUtcOffsetMinutes);
   if (!clockcore::isValidUtcOffset(utcOffsetMinutes_)) {
@@ -50,9 +56,17 @@ bool TimeKeeper::apply(const TimeUpdate& update) {
   utcOffsetMinutes_ = update.utcOffsetMinutes;
   timezoneFresh_ =
       update.source == TimeSource::kBle || update.source == TimeSource::kPortal;
+  const SyncRoute candidateRoute =
+      clockcore::syncRouteForSource(update.source);
+  if (candidateRoute == SyncRoute::kBle ||
+      syncRoute_ == SyncRoute::kUnselected) {
+    syncRoute_ = candidateRoute;
+  }
+  lastSyncUtc_ = update.unixUtc;
   preferences_.putShort("utc-offset", utcOffsetMinutes_);
-  preferences_.putLong64("last-sync", update.unixUtc);
-  preferences_.putUChar("sync-source", static_cast<uint8_t>(update.source));
+  preferences_.putLong64("last-sync", lastSyncUtc_);
+  preferences_.putUChar("sync-source",
+                        static_cast<uint8_t>(syncRoute_));
   preferences_.putBool("confirmed", true);
   hasConfirmedSync_ = true;
 
@@ -64,7 +78,9 @@ bool TimeKeeper::apply(const TimeUpdate& update) {
 
 void TimeKeeper::clearSyncTrust() {
   preferences_.clear();
+  lastSyncUtc_ = 0;
   utcOffsetMinutes_ = config::kDefaultUtcOffsetMinutes;
+  syncRoute_ = SyncRoute::kUnselected;
   timezoneFresh_ = false;
   hasConfirmedSync_ = false;
 }

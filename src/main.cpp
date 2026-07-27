@@ -90,8 +90,8 @@ UserDisplayState displayState() {
   return clockcore::selectUserDisplayState(
       recoveryButtonHeld, networkTime.portalActive(), networkTime.wifiBusy(),
       clockTime.hasValidTime(),
-      bleTime.advertising() && bleTime.pairingOpen(),
-      networkTime.backgroundRefreshActive());
+      networkTime.setupPairingDisplayActive(),
+      networkTime.syncOverdue());
 }
 }  // namespace
 
@@ -113,7 +113,8 @@ void setup() {
   clockDisplay.begin();
   bleTime.begin(enqueueTimeUpdate, clockTime.hasConfirmedSync());
   networkTime.begin(enqueueTimeUpdate, clockTime.utcOffsetMinutes(),
-                    clockTime.hasConfirmedSync());
+                    clockTime.hasConfirmedSync(), clockTime.syncRoute(),
+                    clockTime.lastSyncUtc(), clockTime.utcNow());
 
   CLOCK_DIAGNOSTIC_PRINTF(
       "Kids Clock boot: display=%s/%s, light=%s, RTC=%s, time=%s, "
@@ -142,7 +143,8 @@ void loop() {
     }
     if (applied) {
       bleTime.markTimeConfirmed();
-      networkTime.onExternalTimeSync(update.utcOffsetMinutes);
+      networkTime.onExternalTimeSync(update.source,
+                                     update.utcOffsetMinutes);
       CLOCK_DIAGNOSTIC_PRINTF(
           "Time synchronized: source=%u epoch=%lld offset=%d\n",
           static_cast<unsigned>(update.source),
@@ -153,6 +155,10 @@ void loop() {
 
   bleTime.tick(clockTime);
   networkTime.tick(bleTime.connected());
-  clockDisplay.tick(clockTime, displayState());
+  if (networkTime.takeBleSyncRequest()) {
+    bleTime.requestSync();
+  }
+  clockDisplay.tick(clockTime, displayState(),
+                    networkTime.syncOverdue());
   delay(config::kMainLoopDelayMs);
 }

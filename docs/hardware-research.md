@@ -26,7 +26,7 @@ perfect eyesight. The core travel-build hardware is approximately **AED
 There is one important product limitation: **a standards-only Bluetooth
 connection cannot automatically obtain local time from every Android and iOS
 phone without phone software or user interaction**. BLE Current Time Service is
-useful on compatible iPhones, but is not universal. The implemented source order is:
+useful on compatible iPhones, but is not universal. The implemented initial source order is:
 
 1. retain the last valid UTC time in the DS3231;
 2. accept UTC and current offset from an authorized phone through the custom
@@ -39,6 +39,14 @@ useful on compatible iPhones, but is not universal. The implemented source order
 The captive-page path needs one phone action ("join `KidsClock-xxxx`"), but no form,
 account, app, Wi-Fi password, or manual time entry. It is the most painless
 cross-platform fallback technically available.
+
+BLE runs alone for 10 seconds on a cleared clock, then coexists with the setup
+portal until the two-minute mark before NTP fallback starts. The first
+successful route is persisted: BLE refreshes every six hours, while portal and
+NTP routes refresh every 24 hours after a 90-second opportunity for BLE to
+take over. A later accepted BLE update permanently promotes either Wi-Fi route
+and stops Wi-Fi activity. This avoids powering all discovery paths forever
+while retaining BLE as the highest-priority upgrade.
 
 ## ESP board comparison
 

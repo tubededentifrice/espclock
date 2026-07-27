@@ -11,7 +11,7 @@ class Ssd1306DisplayBackend final : public DisplayBackend {
   bool begin() override;
   void setBrightness(uint8_t level) override;
   void showTime(uint8_t hour, uint8_t minute, uint8_t second,
-                bool colonOn) override;
+                bool colonOn, bool syncOverdue) override;
   void showMessage(DisplayMessage message) override;
   const char* name() const override { return "SSD1306"; }
 

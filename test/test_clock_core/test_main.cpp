@@ -78,6 +78,68 @@ void test_time_correction_requires_fresh_candidate() {
       clockcore::isPlausibleCorrection(1784970000LL, 1784969699LL));
 }
 
+void test_sync_routes_and_source_specific_intervals() {
+  TEST_ASSERT_FALSE(clockcore::isValidSyncRouteValue(0));
+  TEST_ASSERT_TRUE(clockcore::isValidSyncRouteValue(1));
+  TEST_ASSERT_TRUE(clockcore::isValidSyncRouteValue(3));
+  TEST_ASSERT_FALSE(clockcore::isValidSyncRouteValue(4));
+  TEST_ASSERT_EQUAL_UINT8(
+      static_cast<uint8_t>(SyncRoute::kBle),
+      static_cast<uint8_t>(
+          clockcore::syncRouteForSource(TimeSource::kBle)));
+  TEST_ASSERT_EQUAL_UINT8(
+      static_cast<uint8_t>(SyncRoute::kPortal),
+      static_cast<uint8_t>(
+          clockcore::syncRouteForSource(TimeSource::kPortal)));
+  TEST_ASSERT_EQUAL_UINT8(
+      static_cast<uint8_t>(SyncRoute::kNtp),
+      static_cast<uint8_t>(
+          clockcore::syncRouteForSource(TimeSource::kNtp)));
+
+  constexpr int64_t kLastSync = 1784970000LL;
+  constexpr uint32_t kBleInterval = 6UL * 60UL * 60UL * 1000UL;
+  constexpr uint32_t kWifiInterval = 24UL * 60UL * 60UL * 1000UL;
+  TEST_ASSERT_EQUAL_UINT32(
+      5UL * 60UL * 60UL * 1000UL,
+      clockcore::remainingResyncDelayMs(
+          SyncRoute::kBle, kLastSync, kLastSync + 3600,
+          kBleInterval, kWifiInterval));
+  TEST_ASSERT_EQUAL_UINT32(
+      23UL * 60UL * 60UL * 1000UL,
+      clockcore::remainingResyncDelayMs(
+          SyncRoute::kPortal, kLastSync, kLastSync + 3600,
+          kBleInterval, kWifiInterval));
+  TEST_ASSERT_EQUAL_UINT32(
+      0, clockcore::remainingResyncDelayMs(
+             SyncRoute::kNtp, kLastSync, kLastSync + 86400,
+             kBleInterval, kWifiInterval));
+  TEST_ASSERT_EQUAL_UINT32(
+      0, clockcore::remainingResyncDelayMs(
+             SyncRoute::kBle, kLastSync, 0,
+             kBleInterval, kWifiInterval));
+}
+
+void test_initial_sync_phase_boundaries() {
+  constexpr uint32_t kBleOnlyMs = 10000UL;
+  constexpr uint32_t kSetupMs = 120000UL;
+  TEST_ASSERT_EQUAL_UINT8(
+      static_cast<uint8_t>(clockcore::InitialSyncPhase::kBleOnly),
+      static_cast<uint8_t>(
+          clockcore::initialSyncPhase(9999, kBleOnlyMs, kSetupMs)));
+  TEST_ASSERT_EQUAL_UINT8(
+      static_cast<uint8_t>(clockcore::InitialSyncPhase::kPortal),
+      static_cast<uint8_t>(
+          clockcore::initialSyncPhase(10000, kBleOnlyMs, kSetupMs)));
+  TEST_ASSERT_EQUAL_UINT8(
+      static_cast<uint8_t>(clockcore::InitialSyncPhase::kPortal),
+      static_cast<uint8_t>(
+          clockcore::initialSyncPhase(119999, kBleOnlyMs, kSetupMs)));
+  TEST_ASSERT_EQUAL_UINT8(
+      static_cast<uint8_t>(clockcore::InitialSyncPhase::kNtp),
+      static_cast<uint8_t>(
+          clockcore::initialSyncPhase(120000, kBleOnlyMs, kSetupMs)));
+}
+
 void test_unconfirmed_rtc_allows_first_large_correction() {
   TEST_ASSERT_TRUE(clockcore::isAcceptableCorrection(
       false, 1704067200LL, 1784970000LL));
@@ -146,6 +208,12 @@ void test_oled_brightness_steps_are_monotonic_and_bounded() {
   TEST_ASSERT_EQUAL_UINT8(
       oledbrightness::ditherThreshold(7),
       oledbrightness::ditherThreshold(255));
+  TEST_ASSERT_FALSE(
+      oledbrightness::showsSyncOverdueIndicator(0, true));
+  TEST_ASSERT_TRUE(
+      oledbrightness::showsSyncOverdueIndicator(1, true));
+  TEST_ASSERT_FALSE(
+      oledbrightness::showsSyncOverdueIndicator(7, false));
 }
 
 void test_sparse_oled_night_face_matches_day_geometry() {
@@ -298,7 +366,7 @@ void test_oled_perimeter_alternates_fill_and_drain_minutes() {
   TEST_ASSERT_EQUAL_UINT16(0, span.count);
 }
 
-void test_display_frame_alternates_status_and_valid_time() {
+void test_pairing_frame_stays_visible_through_initial_setup() {
   clockcore::DisplayFrame frame = clockcore::makeDisplayFrame(
       1000, true, true, UserDisplayState::kPairing, 1500);
   TEST_ASSERT_EQUAL_UINT8(
@@ -308,7 +376,7 @@ void test_display_frame_alternates_status_and_valid_time() {
   frame = clockcore::makeDisplayFrame(
       2000, true, true, UserDisplayState::kPairing, 1500);
   TEST_ASSERT_EQUAL_UINT8(
-      static_cast<uint8_t>(clockcore::DisplayContent::kTime),
+      static_cast<uint8_t>(clockcore::DisplayContent::kPairing),
       static_cast<uint8_t>(frame.content));
 
   frame = clockcore::makeDisplayFrame(
@@ -318,7 +386,7 @@ void test_display_frame_alternates_status_and_valid_time() {
       static_cast<uint8_t>(frame.content));
 }
 
-void test_background_refresh_never_interrupts_valid_clock() {
+void test_overdue_refresh_never_interrupts_valid_clock() {
   UserDisplayState state = clockcore::selectUserDisplayState(
       false, true, false, true, true, true);
   TEST_ASSERT_EQUAL_UINT8(static_cast<uint8_t>(UserDisplayState::kClock),
@@ -364,6 +432,11 @@ void test_boot_setup_statuses_remain_visible() {
   state = clockcore::selectUserDisplayState(
       false, false, false, false, false, false);
   TEST_ASSERT_EQUAL_UINT8(static_cast<uint8_t>(UserDisplayState::kNoTime),
+                          static_cast<uint8_t>(state));
+
+  state = clockcore::selectUserDisplayState(
+      false, true, false, false, true, false);
+  TEST_ASSERT_EQUAL_UINT8(static_cast<uint8_t>(UserDisplayState::kPairing),
                           static_cast<uint8_t>(state));
 }
 
@@ -457,6 +530,8 @@ int main(int, char**) {
   RUN_TEST(test_payload_rejects_bad_values);
   RUN_TEST(test_portal_page_submits_device_time_automatically);
   RUN_TEST(test_time_correction_requires_fresh_candidate);
+  RUN_TEST(test_sync_routes_and_source_specific_intervals);
+  RUN_TEST(test_initial_sync_phase_boundaries);
   RUN_TEST(test_unconfirmed_rtc_allows_first_large_correction);
   RUN_TEST(test_light_filter_is_smooth_and_bounded);
   RUN_TEST(test_light_filter_reset_discards_stale_brightness);
@@ -469,8 +544,8 @@ int main(int, char**) {
   RUN_TEST(test_oled_perimeter_dither_is_monotonic_and_full_at_level_seven);
   RUN_TEST(test_oled_perimeter_fills_in_sixty_steps);
   RUN_TEST(test_oled_perimeter_alternates_fill_and_drain_minutes);
-  RUN_TEST(test_display_frame_alternates_status_and_valid_time);
-  RUN_TEST(test_background_refresh_never_interrupts_valid_clock);
+  RUN_TEST(test_pairing_frame_stays_visible_through_initial_setup);
+  RUN_TEST(test_overdue_refresh_never_interrupts_valid_clock);
   RUN_TEST(test_boot_setup_statuses_remain_visible);
   RUN_TEST(test_display_frame_colon_signals_sync_quality);
   RUN_TEST(test_bssid_backoff_is_per_radio_not_ssid);

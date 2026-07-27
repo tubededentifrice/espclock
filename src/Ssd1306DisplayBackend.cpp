@@ -203,11 +203,13 @@ void Ssd1306DisplayBackend::drawPerimeterProgress(
 void Ssd1306DisplayBackend::showTime(const uint8_t hour,
                                      const uint8_t minute,
                                      const uint8_t second,
-                                     const bool) {
+                                     const bool,
+                                     const bool syncOverdue) {
   if (!available_) {
     return;
   }
   const uint32_t frameKey = 0x10000000UL |
+                            (syncOverdue ? 0x01000000UL : 0UL) |
                             (static_cast<uint32_t>(hour) << 16U) |
                             (static_cast<uint32_t>(minute) << 8U) |
                             static_cast<uint32_t>(second);
@@ -260,6 +262,10 @@ void Ssd1306DisplayBackend::showTime(const uint8_t hour,
   // on an edge (notably x=127 and y=63 at low coverage).
   applyBrightnessDither();
   drawPerimeterProgress(minute, second);
+  if (oledbrightness::showsSyncOverdueIndicator(
+          brightness_, syncOverdue)) {
+    display_.fillRect(width_ - 3, 0, 3, 3, SSD1306_WHITE);
+  }
   display_.display();
 }
 
@@ -280,6 +286,28 @@ void Ssd1306DisplayBackend::showMessage(const DisplayMessage message) {
   uint16_t textHeight = 0;
   display_.clearDisplay();
   display_.setTextColor(SSD1306_WHITE);
+  if (message == DisplayMessage::kWifi) {
+    const uint8_t textSize = height_ >= 64 ? 2 : 1;
+    const uint8_t lineHeight = textSize * 8U;
+    const int16_t firstY =
+        static_cast<int16_t>((height_ - lineHeight * 2U) / 2U);
+    const char* lines[2] = {"SEARCHING", "WIFI"};
+    display_.setTextSize(textSize);
+    display_.setTextWrap(false);
+    for (uint8_t line = 0; line < 2; ++line) {
+      int16_t x1 = 0;
+      int16_t y1 = 0;
+      uint16_t textWidth = 0;
+      uint16_t textHeight = 0;
+      display_.getTextBounds(lines[line], 0, 0, &x1, &y1,
+                             &textWidth, &textHeight);
+      display_.setCursor((width_ - textWidth) / 2 - x1,
+                         firstY + line * lineHeight - y1);
+      display_.print(lines[line]);
+    }
+    present();
+    return;
+  }
   display_.setTextSize(textSize);
   display_.setTextWrap(false);
   display_.getTextBounds(text, 0, 0, &x1, &y1, &textWidth, &textHeight);

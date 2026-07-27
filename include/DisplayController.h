@@ -12,14 +12,15 @@ class DisplayController {
  public:
   DisplayController();
   bool begin();
-  void tick(const TimeKeeper& clock, UserDisplayState state);
+  void tick(const TimeKeeper& clock, UserDisplayState state,
+            bool syncOverdue);
   bool displayAvailable() const { return displayAvailable_; }
   bool lightSensorAvailable() const { return lightSensorAvailable_; }
   const char* displayName() const { return display_.name(); }
 
  private:
   void sampleLight();
-  void showClock(const TimeKeeper& clock);
+  void showClock(const TimeKeeper& clock, bool syncOverdue);
   void showMessage(DisplayMessage message);
   void tryLightSensor();
 
