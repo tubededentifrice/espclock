@@ -153,12 +153,14 @@ source = { virtual = "." }
 dependencies = [
     { name = "platformio" },
     { name = "pyserial" },
+    { name = "starlette" },
 ]
 
 [package.metadata]
 requires-dist = [
-    { name = "platformio", specifier = "==6.1.19" },
+    { name = "platformio", git = "https://github.com/platformio/platformio-core.git?rev=6bf706c9b09ba41beb245b608e63e52578f83c06" },
     { name = "pyserial", specifier = "==3.5" },
+    { name = "starlette", specifier = "==1.3.1" },
 ]
 
 [[package]]
@@ -202,8 +204,8 @@ wheels = [
 
 [[package]]
 name = "platformio"
-version = "6.1.19"
-source = { registry = "https://pypi.org/simple" }
+version = "6.1.20b1"
+source = { git = "https://github.com/platformio/platformio-core.git?rev=6bf706c9b09ba41beb245b608e63e52578f83c06#6bf706c9b09ba41beb245b608e63e52578f83c06" }
 dependencies = [
     { name = "ajsonrpc" },
     { name = "bottle" },
@@ -219,10 +221,6 @@ dependencies = [
     { name = "tabulate" },
     { name = "uvicorn" },
     { name = "wsproto" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/3d/a8/e5a87ead3e0c25c054fa9dbfcc5e3ad3bca5b830f691fea820ca618fcc3e/platformio-6.1.19.tar.gz", hash = "sha256:7b53eaa36fcba554411b669eab845626da7c4b90fa6aaee9fe9f1875d82f5f54", size = 240844, upload-time = "2026-02-04T13:40:59.523Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/cf/15/ecb78457241aef59977cafe52b521ed99c7f42e78016d55bbaa953a2b6ae/platformio-6.1.19-py3-none-any.whl", hash = "sha256:4f93b00cf2759035d76ebece4840a3274096f7343ee5bba56cbc0bc3ce2eb6f5", size = 421133, upload-time = "2026-02-04T13:40:56.306Z" },
 ]
 
 [[package]]
@@ -269,15 +267,15 @@ wheels = [
 
 [[package]]
 name = "starlette"
-version = "0.52.1"
+version = "1.3.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "anyio" },
     { name = "typing-extensions", marker = "python_full_version < '3.13'" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/c4/68/79977123bb7be889ad680d79a40f339082c1978b5cfcf62c2d8d196873ac/starlette-0.52.1.tar.gz", hash = "sha256:834edd1b0a23167694292e94f597773bc3f89f362be6effee198165a35d62933", size = 2653702, upload-time = "2026-01-18T13:34:11.062Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/eb/e3/7c1dc7381d9f8ab7d854328ebfa884e62cb3f3d8549ddfd37c7814f42afa/starlette-1.3.1.tar.gz", hash = "sha256:05d0213193f2fbaae60e2ecb593b4add4262ad4e46536b54abe36f11a71724e0", size = 2703240, upload-time = "2026-06-12T09:23:11.602Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/81/0d/13d1d239a25cbfb19e740db83143e95c772a1fe10202dda4b76792b114dd/starlette-0.52.1-py3-none-any.whl", hash = "sha256:0029d43eb3d273bc4f83a08720b4912ea4b071087a3b48db01b7c839f7954d74", size = 74272, upload-time = "2026-01-18T13:34:09.188Z" },
+    { url = "https://files.pythonhosted.org/packages/ec/bb/2799cc2ede3ed41131f8975621e7213dfc7ef4acbbaadfa440f32500c370/starlette-1.3.1-py3-none-any.whl", hash = "sha256:c7372aae11c3c3f26a42df7bd626cec2f47d03483d261d369516a615a53714c6", size = 73632, upload-time = "2026-06-12T09:23:10.017Z" },
 ]
 
 [[package]]
