@@ -55,6 +55,10 @@ finish the investigation, then rerun cleanly without recovery before awarding
 - Never promise universal automatic phone time over generic BLE pairing.
 - Never promise guaranteed periodic iOS execution. Background updates are driven by the clock's BLE notification and can be prevented by a user force-quit.
 - Never retry a failed open-network BSSID in the same boot.
+- Keep captive-portal form automation within the documented response, request,
+  redirect, cookie, submission, and time limits. It may send only per-attempt
+  synthetic values; never credentials, payment details, user/family data, or
+  persisted portal state.
 - Never charge a CR2032 or omit the common DS3231 module warning.
 
 ## Implement

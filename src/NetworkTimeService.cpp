@@ -60,11 +60,17 @@ void NetworkTimeService::begin(const TimeUpdateHandler handler,
   web_.on("/", HTTP_GET, [this]() { handlePortalRoot(); });
   web_.on("/set-time", HTTP_POST, [this]() { handlePortalTime(); });
   web_.onNotFound([this]() { handlePortalRoot(); });
+#if CLOCK_ENABLE_OPEN_WIFI_FALLBACK && CLOCK_ENABLE_CAPTIVE_PORTAL_AUTOFILL
+  captivePortalAutofillReady_ = portalAutofill_.begin();
+  CLOCK_DIAGNOSTIC_PRINTF("[WiFi] captive autofill worker=%s\n",
+                          captivePortalAutofillReady_ ? "ready" : "failed");
+#endif
 }
 
 bool NetworkTimeService::wifiBusy() const {
   return mode_ == Mode::kScanning || mode_ == Mode::kConnecting ||
-         mode_ == Mode::kWaitingForNtp;
+         mode_ == Mode::kWaitingForNtp ||
+         mode_ == Mode::kWaitingForPortalAutomation;
 }
 
 bool NetworkTimeService::takeBleSyncRequest() {
@@ -266,6 +272,7 @@ void NetworkTimeService::connectNextCandidate() {
   }
   activeCandidateIndex_ = nextCandidateIndex_++;
   ++wifiAttemptsThisWindow_;
+  ntpRetriedAfterPortal_ = false;
   WiFi.begin(candidate->ssid, nullptr, candidate->channel,
              candidate->bssid, true);
   mode_ = Mode::kConnecting;
@@ -310,18 +317,71 @@ void NetworkTimeService::finishNtp(const bool success) {
   if (accepted && handler_ != nullptr) {
     handler_({candidateEpoch, utcOffsetMinutes_,
               TimeSource::kNtp});
-  } else if (candidate != nullptr) {
-    rememberFailure(candidate->bssid);
   }
   if (accepted) {
     // The main task will atomically apply the queued update and arm the
     // route-specific next refresh. Stop this Wi-Fi attempt in the meantime.
     stopNetworkActivity();
     resyncDueArmed_ = false;
+  } else if (candidate != nullptr &&
+             captiveportal::actionAfterNtpFailure(
+                 captivePortalAutofillReady_, ntpRetriedAfterPortal_) ==
+                 captiveportal::NtpFailureAction::kTryPortal) {
+    startPortalAutomation();
   } else {
+    if (candidate != nullptr) {
+      rememberFailure(candidate->bssid);
+    }
     WiFi.disconnect(false, false);
     connectNextCandidate();
   }
+}
+
+void NetworkTimeService::startPortalAutomation() {
+#if CLOCK_ENABLE_OPEN_WIFI_FALLBACK && CLOCK_ENABLE_CAPTIVE_PORTAL_AUTOFILL
+  const uint32_t generation = ++networkGeneration_;
+  if (!portalAutofill_.start(generation, esp_random())) {
+    const clockcore::WifiCandidate* candidate =
+        candidateRanker_.at(activeCandidateIndex_);
+    if (candidate != nullptr) {
+      rememberFailure(candidate->bssid);
+    }
+    WiFi.disconnect(false, false);
+    connectNextCandidate();
+    return;
+  }
+  mode_ = Mode::kWaitingForPortalAutomation;
+  modeStartedMs_ = millis();
+  CLOCK_DIAGNOSTIC_PRINTF(
+      "[WiFi] captive autofill start generation=%lu timeout_ms=%lu\n",
+      static_cast<unsigned long>(generation),
+      static_cast<unsigned long>(config::kCaptivePortalTimeoutMs));
+#else
+  const clockcore::WifiCandidate* candidate =
+      candidateRanker_.at(activeCandidateIndex_);
+  if (candidate != nullptr) {
+    rememberFailure(candidate->bssid);
+  }
+  WiFi.disconnect(false, false);
+  connectNextCandidate();
+#endif
+}
+
+void NetworkTimeService::finishPortalAutomation(
+    const CaptivePortalAutofill::Result result) {
+  if (captiveportal::actionAfterPortalResult(result) ==
+      captiveportal::PortalResultAction::kRetryNtp) {
+    ntpRetriedAfterPortal_ = true;
+    startNtp();
+    return;
+  }
+  const clockcore::WifiCandidate* candidate =
+      candidateRanker_.at(activeCandidateIndex_);
+  if (candidate != nullptr) {
+    rememberFailure(candidate->bssid);
+  }
+  WiFi.disconnect(false, false);
+  connectNextCandidate();
 }
 
 void NetworkTimeService::stopNetworkActivity() {
@@ -332,6 +392,7 @@ void NetworkTimeService::stopNetworkActivity() {
   if (mode_ == Mode::kPortal) {
     stopPortal();
   }
+  portalAutofill_.cancel(++networkGeneration_);
   WiFi.scanDelete();
   if (WiFi.getMode() != WIFI_MODE_NULL) {
     WiFi.disconnect(true, false);
@@ -468,6 +529,29 @@ void NetworkTimeService::tick(const bool bleConnected) {
         finishNtp(false);
       }
       break;
+    case Mode::kWaitingForPortalAutomation: {
+      if (wifiWindowExpired(now) ||
+          captiveportal::automationWindowExpired(
+              now, modeStartedMs_, config::kCaptivePortalTimeoutMs)) {
+        const clockcore::WifiCandidate* candidate =
+            candidateRanker_.at(activeCandidateIndex_);
+        if (candidate != nullptr) {
+          rememberFailure(candidate->bssid);
+        }
+        portalAutofill_.cancel(++networkGeneration_);
+        finishFailedAttempt();
+        break;
+      }
+      uint32_t generation = 0;
+      CaptivePortalAutofill::Result result =
+          CaptivePortalAutofill::Result::kFailed;
+      if (portalAutofill_.poll(generation, result) &&
+          captiveportal::completionMatchesGeneration(networkGeneration_,
+                                                     generation)) {
+        finishPortalAutomation(result);
+      }
+      break;
+    }
     case Mode::kIdle:
       if (resyncDueArmed_ && deadlineReached(now, nextAttemptMs_)) {
         if (syncRoute_ == SyncRoute::kBle) {

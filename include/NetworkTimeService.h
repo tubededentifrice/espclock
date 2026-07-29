@@ -4,6 +4,7 @@
 #include <WebServer.h>
 #include <WiFi.h>
 
+#include "CaptivePortalAutofill.h"
 #include "ClockCore.h"
 #include "ClockTypes.h"
 
@@ -15,6 +16,7 @@ class NetworkTimeService {
     kScanning,
     kConnecting,
     kWaitingForNtp,
+    kWaitingForPortalAutomation,
     kIdle,
   };
 
@@ -42,6 +44,8 @@ class NetworkTimeService {
   void connectNextCandidate();
   void startNtp();
   void finishNtp(bool success);
+  void startPortalAutomation();
+  void finishPortalAutomation(CaptivePortalAutofill::Result result);
   bool wifiWindowExpired(uint32_t now) const;
   void stopNetworkActivity();
   void armResync(uint32_t delayMs);
@@ -54,6 +58,7 @@ class NetworkTimeService {
 
   DNSServer dns_;
   WebServer web_;
+  CaptivePortalAutofill portalAutofill_;
   TimeUpdateHandler handler_ = nullptr;
   Mode mode_ = Mode::kWaitingForBle;
   clockcore::WifiCandidateRanker candidateRanker_;
@@ -64,6 +69,7 @@ class NetworkTimeService {
   uint32_t portalStopAtMs_ = 0;
   uint32_t wifiWindowStartedMs_ = 0;
   uint32_t ntpBaselineMs_ = 0;
+  uint32_t networkGeneration_ = 0;
   int64_t ntpBaselineEpoch_ = 0;
   int16_t utcOffsetMinutes_ = 0;
   SyncRoute syncRoute_ = SyncRoute::kUnselected;
@@ -82,6 +88,8 @@ class NetworkTimeService {
   bool syncOverdue_ = false;
   bool bleResyncGraceActive_ = false;
   bool bleSyncRequestPending_ = false;
+  bool captivePortalAutofillReady_ = false;
+  bool ntpRetriedAfterPortal_ = false;
 
   static NetworkTimeService* instance_;
   static volatile bool ntpSynced_;

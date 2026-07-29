@@ -166,21 +166,29 @@ recovery gesture.
 
 #### 4. Opportunistic open Wi-Fi is a risky, weak fallback
 
-**Failure:** the unit joins a hostile look-alike AP, gets trapped behind a portal,
-leaks a stable identifier, accepts spoofed unauthenticated NTP, or repeatedly
-burns time trying the same failing network. Terms of use may require a human
-acceptance that the clock cannot give.
+**Failure:** the unit joins a hostile look-alike AP, gets trapped behind a
+portal, leaks a stable identifier, accepts spoofed unauthenticated NTP, or
+repeatedly burns time trying the same failing network. Portal automation may
+also accept terms that were written for a human.
 
 Captive portals are specifically networks that restrict access until user
 conditions are fulfilled, typically through a browser. The IETF architecture
 does not provide a headless device a universal way to negotiate access; see
-[RFC 8952](https://www.rfc-editor.org/info/rfc8952/).
+[RFC 8952](https://www.rfc-editor.org/info/rfc8952/). The CAPPORT API in
+[RFC 8908](https://www.rfc-editor.org/info/rfc8908) and DHCP/RA identification
+in [RFC 8910](https://www.rfc-editor.org/info/rfc8910) can advertise portal
+state and a human-facing URL, but do not standardize the portal's forms. The
+pinned Arduino/lwIP stack also does not expose DHCP option 114 without a
+framework change, so the implemented automator keeps HTTP interception as its
+discovery mechanism.
 
 **Required action:** treat this as optional, last-resort, compile-time-enabled
 behavior—not as a reliable requirement:
 
-- attempt only truly open APs; never guess passwords or automate portal/TOS
-  acceptance;
+- attempt only truly open APs and never guess passwords;
+- if portal automation is enabled, accept only fixed-capacity ordinary HTML
+  guest/terms forms with per-attempt synthetic data; reject credentials,
+  payments, challenges, unsupported encodings, and every documented overflow;
 - key the “attempted this boot” set by **BSSID**, not only SSID, and cap the set;
 - sort candidates deterministically, enforce short association/DHCP/Internet
   timeouts, try each BSSID once per boot, cap the total number and total elapsed
@@ -195,9 +203,17 @@ behavior—not as a reliable requirement:
 - randomize the station identity where supported and never send child/family
   identifiers or telemetry.
 
-The project must explicitly decide whether opportunistic joining is enabled in
-the normal build. The recommendation is **disabled by default** until its
-legal, privacy, and spoofing tradeoff is accepted.
+**Selected v1 disposition:** opportunistic joining and bounded portal
+automation are enabled in normal builds. After an initial NTP failure, a
+low-priority worker performs an interception probe, follows at most five
+redirects, and submits at most three same-origin URL-encoded forms within 45
+seconds. It checks terms boxes and uses only a random per-attempt synthetic
+name, reserved email/phone values, and fixed placeholders. Portal HTTPS is
+intentionally unverified because the clock may not yet have trustworthy UTC.
+The worker cannot use passwords, payments, CAPTCHA/OTP, vouchers, membership,
+reservation, or room data; never persists its cookies or identity; and must
+still obtain an acceptable NTP result. This is an explicit availability-over-
+portal-authentication tradeoff, not a universal captive-portal protocol.
 
 #### 5. Power loss destroys time without an external RTC
 
@@ -319,8 +335,9 @@ boot. Only then may it try open-Wi-Fi/NTP, bounded to 10 minutes. The first
 successful BLE, portal, or NTP source is persisted as the refresh route. BLE
 routes refresh every six hours without starting Wi-Fi. Portal and NTP routes
 refresh every 24 hours after a 90-second BLE promotion opportunity; portal
-refresh leaves its AP available until success, while NTP failure backs off for
-another day. A later accepted BLE write promotes either Wi-Fi route and
+refresh leaves its AP available until success, while an NTP route may try the
+bounded captive-portal automator before a final NTP retry and then backs off
+for another day. A later accepted BLE write promotes either Wi-Fi route and
 immediately tears Wi-Fi down. Failed open BSSIDs remain excluded for the
 current boot.
 
@@ -403,7 +420,12 @@ No item below should be replaced by “works on my phone.”
       secret or stable child/family identifier is transmitted.
 - [ ] A spoofed NTP answer cannot override a fresher authenticated phone source,
       and the display/source-quality state reflects lower trust.
-- [ ] Captive-portal terms are never auto-accepted or bypassed.
+- [ ] Button-only and common guest/terms forms are attempted with only the
+      documented synthetic values; credentials, payments, challenges,
+      oversized/malformed input, and cross-origin form actions fail closed.
+- [ ] Portal automation remains within three submissions, five redirects, 45
+      seconds, and its fixed response/request/form/control/cookie capacities;
+      BLE cancellation cannot apply a stale worker result.
 
 ### Display and light sensing
 

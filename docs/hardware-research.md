@@ -34,7 +34,8 @@ useful on compatible iPhones, but is not universal. The implemented initial sour
 3. expose a no-installed-app SoftAP captive page that automatically transfers
    the phone browser's epoch and current offset after the user joins the AP;
 4. try each truly open Wi-Fi BSSID once per boot and use NTP for UTC while
-   retaining the last phone-confirmed offset.
+   retaining the last phone-confirmed offset; after an NTP failure, make one
+   bounded synthetic-data-only captive-portal attempt before the final retry.
 
 The captive-page path needs one phone action ("join `KidsClock-xxxx`"), but no form,
 account, app, Wi-Fi password, or manual time entry. It is the most painless
@@ -292,14 +293,27 @@ network as the same network: track failures by BSSID for the current boot.
 After association, require DHCP; a successful bounded NTP response is the
 implemented Internet/time proof. Mark that BSSID failed on association timeout,
 DHCP timeout, NTP failure, or total-window exhaustion, and do not retry it until
-the next boot. Captive portals normally fail this proof and are not bypassed.
+the next boot. After an initial NTP failure, the implemented best-effort worker
+uses an HTTP interception probe and may accept up to three fixed-capacity
+same-origin guest/terms forms with a non-persisted synthetic identity before
+retrying NTP once. It rejects credentials, payments, CAPTCHA/OTP, vouchers,
+membership, reservation, room-number, JavaScript-only, malformed, and oversized
+flows. Portal TLS is deliberately unverified because a new clock may not yet
+have trustworthy UTC.
+
+[RFC 8908](https://www.rfc-editor.org/info/rfc8908) and
+[RFC 8910](https://www.rfc-editor.org/info/rfc8910) standardize CAPPORT portal
+state/discovery and a human-facing URL, not portable form semantics. The pinned
+Arduino/lwIP stack does not surface DHCP option 114 without framework changes,
+so the firmware retains the intercepted HTTP connectivity probe.
 
 NTP returns UTC, not the local timezone. Automatic local display on open Wi-Fi
 therefore also needs an IP-geolocation/timezone HTTPS service. That adds an
 external-service dependency and exposes the network's public IP to the chosen
 provider. Captive portals commonly block NTP and HTTPS until terms are accepted,
-and random open networks may be untrusted or unlawful to use. Open Wi-Fi should
-remain a bounded best-effort fallback, never the foundation of correct time.
+and random open networks remain untrusted. The synthetic autofill improves some
+simple portals but cannot make open Wi-Fi reliable or authenticated. Open Wi-Fi
+remains a bounded best-effort fallback, never the foundation of correct time.
 
 ## Bill of materials
 

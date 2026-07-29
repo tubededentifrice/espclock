@@ -62,6 +62,18 @@
 #define CLOCK_ENABLE_OPEN_WIFI_FALLBACK 1
 #endif
 
+#ifndef CLOCK_ENABLE_CAPTIVE_PORTAL_AUTOFILL
+#define CLOCK_ENABLE_CAPTIVE_PORTAL_AUTOFILL 1
+#endif
+
+#ifndef CLOCK_CAPTIVE_PORTAL_MAX_SUBMISSIONS
+#define CLOCK_CAPTIVE_PORTAL_MAX_SUBMISSIONS 3
+#endif
+
+#ifndef CLOCK_CAPTIVE_PORTAL_TIMEOUT_MS
+#define CLOCK_CAPTIVE_PORTAL_TIMEOUT_MS 45000UL
+#endif
+
 #ifndef CLOCK_DEFAULT_UTC_OFFSET_MINUTES
 #define CLOCK_DEFAULT_UTC_OFFSET_MINUTES 0
 #endif
@@ -170,6 +182,10 @@ constexpr uint32_t kInitialSetupWindowMs =
     CLOCK_INITIAL_SETUP_WINDOW_MS;
 constexpr uint32_t kWifiConnectTimeoutMs = CLOCK_WIFI_CONNECT_TIMEOUT_MS;
 constexpr uint32_t kNtpTimeoutMs = CLOCK_NTP_TIMEOUT_MS;
+constexpr uint8_t kCaptivePortalMaximumSubmissions =
+    CLOCK_CAPTIVE_PORTAL_MAX_SUBMISSIONS;
+constexpr uint32_t kCaptivePortalTimeoutMs =
+    CLOCK_CAPTIVE_PORTAL_TIMEOUT_MS;
 constexpr uint32_t kResyncIntervalMs = CLOCK_RESYNC_INTERVAL_MS;
 constexpr uint32_t kWifiResyncIntervalMs =
     CLOCK_WIFI_RESYNC_INTERVAL_MS;
@@ -219,6 +235,18 @@ static_assert(CLOCK_LIGHT_DIAGNOSTICS == 0 ||
 static_assert(CLOCK_LIGHT_DIAGNOSTICS == 0 ||
                   CLOCK_ENABLE_DIAGNOSTICS == 1,
               "CLOCK_LIGHT_DIAGNOSTICS requires CLOCK_ENABLE_DIAGNOSTICS");
+static_assert(CLOCK_ENABLE_OPEN_WIFI_FALLBACK == 0 ||
+                  CLOCK_ENABLE_OPEN_WIFI_FALLBACK == 1,
+              "CLOCK_ENABLE_OPEN_WIFI_FALLBACK must be 0 or 1");
+static_assert(CLOCK_ENABLE_CAPTIVE_PORTAL_AUTOFILL == 0 ||
+                  CLOCK_ENABLE_CAPTIVE_PORTAL_AUTOFILL == 1,
+              "CLOCK_ENABLE_CAPTIVE_PORTAL_AUTOFILL must be 0 or 1");
+static_assert(CLOCK_CAPTIVE_PORTAL_MAX_SUBMISSIONS >= 1 &&
+                  CLOCK_CAPTIVE_PORTAL_MAX_SUBMISSIONS <= 3,
+              "Captive portal submissions must be between 1 and 3");
+static_assert(CLOCK_CAPTIVE_PORTAL_TIMEOUT_MS >= 5000UL &&
+                  CLOCK_CAPTIVE_PORTAL_TIMEOUT_MS < 0x80000000UL,
+              "Captive portal timeout must be bounded and wrap-safe");
 static_assert(kBleFastAdvertisingMinMs >= 20 &&
                   kBleFastAdvertisingMinMs <=
                       kBleFastAdvertisingMaxMs &&

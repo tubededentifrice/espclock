@@ -150,4 +150,6 @@ Approximate prices are snapshots, not promises. Date them and distinguish requir
 - The finished enclosure must prevent children from accessing the coin cell, solder joints, or USB/power wiring.
 - Do not recommend epoxy directly over connectors, the light-sensor aperture, antenna keep-out, USB controls, or a replaceable coin cell.
 - Do not use mains wiring. Specify a certified 5 V USB supply.
-- Open Wi-Fi is untrusted. Send no credentials or personal data and do not attempt to bypass captive portals.
+- Open Wi-Fi is untrusted. Captive-portal automation may use only the bounded
+  synthetic identity flow documented in the README; never send credentials,
+  payment data, user/family data, stable identifiers, or retained portal state.

@@ -100,8 +100,10 @@ judging a change in isolation.
 - Do not log secrets, authentication material, full device identifiers, or
   precise location.
 - Never claim generic BLE pairing universally transfers phone time or Internet
-  access. Never bypass captive portals or transmit personal data over open
-  Wi-Fi.
+  access. For the explicitly authorized captive-portal automator, verify every
+  documented bound, synthetic-data-only rule, and cancellation path; never
+  transmit credentials, payment details, user/family data, stable identifiers,
+  or retained portal state over open Wi-Fi.
 
 ### Completeness and consistency
 

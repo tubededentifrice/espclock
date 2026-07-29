@@ -4,6 +4,7 @@
 #include <unity.h>
 
 #include "ClockCore.h"
+#include "CaptivePortalAutofillCore.h"
 #include "OledDigitGlyph.h"
 #include "OledBrightness.h"
 #include "OledPerimeter.h"
@@ -522,6 +523,340 @@ void test_wifi_candidate_rejects_invalid_metadata() {
   TEST_ASSERT_NULL(ranker.at(0));
 }
 
+void test_captive_portal_identity_uses_reserved_contact_data() {
+  captiveportal::SyntheticIdentity identity;
+  captiveportal::makeSyntheticIdentity(0x12345678U, identity);
+  TEST_ASSERT_EQUAL_STRING("345678", identity.nonce);
+  TEST_ASSERT_EQUAL_STRING("clock345678", identity.username);
+  TEST_ASSERT_EQUAL_STRING("clock345678@example.com", identity.email);
+  TEST_ASSERT_EQUAL_STRING("+12025550196", identity.phone);
+}
+
+void test_captive_portal_ntp_failure_policy_is_single_attempt() {
+  TEST_ASSERT_EQUAL_UINT8(
+      static_cast<uint8_t>(
+          captiveportal::NtpFailureAction::kTryPortal),
+      static_cast<uint8_t>(
+          captiveportal::actionAfterNtpFailure(true, false)));
+  TEST_ASSERT_EQUAL_UINT8(
+      static_cast<uint8_t>(
+          captiveportal::NtpFailureAction::kFailCandidate),
+      static_cast<uint8_t>(
+          captiveportal::actionAfterNtpFailure(true, true)));
+  TEST_ASSERT_EQUAL_UINT8(
+      static_cast<uint8_t>(
+          captiveportal::NtpFailureAction::kFailCandidate),
+      static_cast<uint8_t>(
+          captiveportal::actionAfterNtpFailure(false, false)));
+  TEST_ASSERT_EQUAL_UINT8(
+      static_cast<uint8_t>(captiveportal::PortalResultAction::kRetryNtp),
+      static_cast<uint8_t>(captiveportal::actionAfterPortalResult(
+          captiveportal::AutomationResult::kPortalOpened)));
+  TEST_ASSERT_EQUAL_UINT8(
+      static_cast<uint8_t>(
+          captiveportal::PortalResultAction::kFailCandidate),
+      static_cast<uint8_t>(captiveportal::actionAfterPortalResult(
+          captiveportal::AutomationResult::kInternetAlreadyOpen)));
+}
+
+void test_captive_portal_redirect_timeout_and_generation_limits() {
+  uint8_t redirects = 0;
+  for (uint8_t index = 0; index < captiveportal::kMaximumRedirects; ++index) {
+    TEST_ASSERT_TRUE(captiveportal::consumeRedirect(redirects));
+  }
+  TEST_ASSERT_EQUAL_UINT8(captiveportal::kMaximumRedirects, redirects);
+  TEST_ASSERT_FALSE(captiveportal::consumeRedirect(redirects));
+
+  constexpr uint32_t kStarted = UINT32_MAX - 10U;
+  TEST_ASSERT_FALSE(
+      captiveportal::automationWindowExpired(18U, kStarted, 30U));
+  TEST_ASSERT_TRUE(
+      captiveportal::automationWindowExpired(19U, kStarted, 30U));
+  TEST_ASSERT_TRUE(captiveportal::completionMatchesGeneration(7, 7));
+  TEST_ASSERT_FALSE(captiveportal::completionMatchesGeneration(8, 7));
+}
+
+void test_captive_portal_cookie_jar_is_bounded_and_origin_scoped() {
+  captiveportal::CookieJar cookies;
+  TEST_ASSERT_TRUE(cookies.add(
+      "portal.example", "session=one; Path=/; HttpOnly"));
+  TEST_ASSERT_TRUE(cookies.add("portal.example", "csrf=two; Secure"));
+  TEST_ASSERT_TRUE(cookies.add("other.example", "foreign=three"));
+  TEST_ASSERT_TRUE(cookies.add("portal.example", "session=replaced"));
+  TEST_ASSERT_EQUAL_UINT8(3, cookies.count());
+  char header[128] = {};
+  TEST_ASSERT_TRUE(
+      cookies.headerFor("portal.example", header, sizeof(header)));
+  TEST_ASSERT_EQUAL_STRING("session=replaced; csrf=two", header);
+  TEST_ASSERT_TRUE(
+      cookies.headerFor("unrelated.example", header, sizeof(header)));
+  TEST_ASSERT_EQUAL_STRING("", header);
+  TEST_ASSERT_FALSE(cookies.add("portal.example", "bad\r\n=value"));
+
+  captiveportal::CookieJar aggregateLimit;
+  char largePair[captiveportal::kMaximumCookiePairLength + 1] = {};
+  for (uint8_t index = 0; index < 4; ++index) {
+    largePair[0] = static_cast<char>('a' + index);
+    largePair[1] = '=';
+    memset(largePair + 2, 'x', sizeof(largePair) - 3);
+    largePair[sizeof(largePair) - 1] = '\0';
+    TEST_ASSERT_TRUE(aggregateLimit.add("portal.example", largePair));
+  }
+  TEST_ASSERT_EQUAL_UINT32(captiveportal::kMaximumCookieBytes,
+                           aggregateLimit.bytes());
+  TEST_ASSERT_FALSE(aggregateLimit.add("portal.example", "e=1"));
+}
+
+void test_captive_portal_reuses_identity_across_form_steps() {
+  constexpr char kFirstStep[] =
+      "<form action='/step2' method=post><input name=email required>"
+      "<button>Continue</button></form>";
+  constexpr char kSecondStep[] =
+      "<form action='/finish' method=post><input name=first_name required>"
+      "<input name=email required><button>Accept</button></form>";
+  captiveportal::SyntheticIdentity identity;
+  captiveportal::makeSyntheticIdentity(0x123456U, identity);
+  captiveportal::Submission first;
+  captiveportal::Submission second;
+  TEST_ASSERT_TRUE(captiveportal::buildSubmission(
+      kFirstStep, strlen(kFirstStep), "http://portal.example/start",
+      identity, first));
+  TEST_ASSERT_TRUE(captiveportal::buildSubmission(
+      kSecondStep, strlen(kSecondStep), "http://portal.example/step2",
+      identity, second));
+  TEST_ASSERT_EQUAL_STRING(first.fields[0].value, second.fields[1].value);
+  TEST_ASSERT_EQUAL_STRING("Travel", second.fields[0].value);
+}
+
+void test_captive_portal_url_resolution_and_origin_checks() {
+  char resolved[captiveportal::kMaximumUrlLength + 1] = {};
+  TEST_ASSERT_TRUE(captiveportal::resolveUrl(
+      "http://portal.example/start/index.html?old=1", "../accept?x=1",
+      resolved, sizeof(resolved)));
+  TEST_ASSERT_EQUAL_STRING(
+      "http://portal.example/start/../accept?x=1", resolved);
+  TEST_ASSERT_TRUE(captiveportal::sameOrigin(
+      "http://portal.example/start", resolved));
+  TEST_ASSERT_FALSE(captiveportal::sameOrigin(
+      "http://portal.example/start", "https://portal.example/accept"));
+  TEST_ASSERT_FALSE(captiveportal::resolveUrl(
+      "http://portal.example/start", "javascript:accept()", resolved,
+      sizeof(resolved)));
+  captiveportal::Url unsafe;
+  TEST_ASSERT_FALSE(captiveportal::parseUrl(
+      "http://portal.example/\r\nInjected: yes", unsafe));
+}
+
+void test_captive_portal_builds_button_only_submission() {
+  constexpr char kHtml[] =
+      "<html><form action='/accept' method='post'>"
+      "<input type='hidden' name='token' value='a&amp;b'>"
+      "<button name='commit' value='yes'>Accept and connect</button>"
+      "</form></html>";
+  captiveportal::SyntheticIdentity identity;
+  captiveportal::makeSyntheticIdentity(7, identity);
+  captiveportal::Submission submission;
+  TEST_ASSERT_TRUE(captiveportal::buildSubmission(
+      kHtml, strlen(kHtml), "http://portal.example/start", identity,
+      submission));
+  TEST_ASSERT_EQUAL_UINT8(
+      static_cast<uint8_t>(captiveportal::Method::kPost),
+      static_cast<uint8_t>(submission.method));
+  TEST_ASSERT_EQUAL_STRING("http://portal.example/accept",
+                           submission.action);
+  TEST_ASSERT_EQUAL_UINT8(2, submission.fieldCount);
+  TEST_ASSERT_EQUAL_STRING("token", submission.fields[0].name);
+  TEST_ASSERT_EQUAL_STRING("a&b", submission.fields[0].value);
+  TEST_ASSERT_EQUAL_STRING("commit", submission.fields[1].name);
+  TEST_ASSERT_EQUAL_STRING("yes", submission.fields[1].value);
+}
+
+void test_captive_portal_preserves_repeated_hidden_fields() {
+  constexpr char kHtml[] =
+      "<form action='/accept' method='post'>"
+      "<input type=hidden name=token value=one>"
+      "<input type=hidden name=token value=two>"
+      "<button>Accept and connect</button></form>";
+  captiveportal::SyntheticIdentity identity;
+  captiveportal::makeSyntheticIdentity(7, identity);
+  captiveportal::Submission submission;
+  TEST_ASSERT_TRUE(captiveportal::buildSubmission(
+      kHtml, strlen(kHtml), "http://portal.example/start", identity,
+      submission));
+  TEST_ASSERT_EQUAL_UINT8(2, submission.fieldCount);
+  TEST_ASSERT_EQUAL_STRING("one", submission.fields[0].value);
+  TEST_ASSERT_EQUAL_STRING("two", submission.fields[1].value);
+}
+
+void test_captive_portal_submits_a_truly_fieldless_button_form() {
+  constexpr char kHtml[] =
+      "<form action='/accept' method='post'>"
+      "<button>Accept terms and connect</button></form>";
+  captiveportal::SyntheticIdentity identity;
+  captiveportal::makeSyntheticIdentity(7, identity);
+  captiveportal::Submission submission;
+  TEST_ASSERT_TRUE(captiveportal::buildSubmission(
+      kHtml, strlen(kHtml), "http://portal.example/start", identity,
+      submission));
+  TEST_ASSERT_EQUAL_UINT8(0, submission.fieldCount);
+  TEST_ASSERT_EQUAL_STRING("http://portal.example/accept",
+                           submission.action);
+  char encoded[captiveportal::kMaximumRequestBodyLength + 1] = {};
+  TEST_ASSERT_TRUE(captiveportal::encodeSubmission(
+      submission, encoded, sizeof(encoded)));
+  TEST_ASSERT_EQUAL_STRING("", encoded);
+}
+
+void test_captive_portal_fills_common_fields_and_terms() {
+  constexpr char kHtml[] =
+      "<form method=post action='join'>"
+      "<input name=first_name required>"
+      "<input name=last_name required>"
+      "<input type=email name=contact required>"
+      "<input type=tel name=mobile>"
+      "<input type=checkbox name=terms value=accepted>"
+      "<input type=radio name=plan value=free>"
+      "<input type=radio name=plan value=paid>"
+      "<select name=country><option value=''>Choose</option>"
+      "<option value=US selected>United States</option></select>"
+      "<button>Continue</button></form>";
+  captiveportal::SyntheticIdentity identity;
+  captiveportal::makeSyntheticIdentity(0xABCDEF, identity);
+  captiveportal::Submission submission;
+  TEST_ASSERT_TRUE(captiveportal::buildSubmission(
+      kHtml, strlen(kHtml), "https://portal.example/welcome/", identity,
+      submission));
+  TEST_ASSERT_EQUAL_STRING("https://portal.example/welcome/join",
+                           submission.action);
+  TEST_ASSERT_EQUAL_UINT8(7, submission.fieldCount);
+  TEST_ASSERT_EQUAL_STRING("Travel", submission.fields[0].value);
+  TEST_ASSERT_EQUAL_STRING("Clock", submission.fields[1].value);
+  TEST_ASSERT_EQUAL_STRING("clockabcdef@example.com",
+                           submission.fields[2].value);
+  TEST_ASSERT_EQUAL_STRING("+12025550175", submission.fields[3].value);
+  TEST_ASSERT_EQUAL_STRING("accepted", submission.fields[4].value);
+  TEST_ASSERT_EQUAL_STRING("free", submission.fields[5].value);
+  TEST_ASSERT_EQUAL_STRING("US", submission.fields[6].value);
+}
+
+void test_captive_portal_prefers_free_guest_form() {
+  constexpr char kHtml[] =
+      "<form action='/paid'><input name=email required>"
+      "<button>Purchase premium access</button></form>"
+      "<form action='/guest'><input name=email required>"
+      "<button>Free guest access</button></form>";
+  captiveportal::SyntheticIdentity identity;
+  captiveportal::makeSyntheticIdentity(1, identity);
+  captiveportal::Submission submission;
+  TEST_ASSERT_TRUE(captiveportal::buildSubmission(
+      kHtml, strlen(kHtml), "http://portal.example/", identity,
+      submission));
+  TEST_ASSERT_EQUAL_STRING("http://portal.example/guest",
+                           submission.action);
+}
+
+void test_captive_portal_rejects_credential_and_payment_forms() {
+  constexpr char kPassword[] =
+      "<form><input name=user required><input type=password name=secret>"
+      "<button>Login</button></form>";
+  constexpr char kPayment[] =
+      "<form><input name=credit_card required><button>Continue</button>"
+      "</form>";
+  constexpr char kPaidButton[] =
+      "<form><input name=email required>"
+      "<button>Purchase premium access</button></form>";
+  captiveportal::SyntheticIdentity identity;
+  captiveportal::makeSyntheticIdentity(1, identity);
+  captiveportal::Submission submission;
+  TEST_ASSERT_FALSE(captiveportal::buildSubmission(
+      kPassword, strlen(kPassword), "http://portal.example/", identity,
+      submission));
+  TEST_ASSERT_FALSE(captiveportal::buildSubmission(
+      kPayment, strlen(kPayment), "http://portal.example/", identity,
+      submission));
+  TEST_ASSERT_FALSE(captiveportal::buildSubmission(
+      kPaidButton, strlen(kPaidButton), "http://portal.example/", identity,
+      submission));
+}
+
+void test_captive_portal_rejects_cross_origin_and_unsupported_actions() {
+  constexpr char kCrossOrigin[] =
+      "<form action='https://other.example/accept'>"
+      "<input type=hidden name=token value=1><button>Accept</button></form>";
+  constexpr char kJavascript[] =
+      "<form action='javascript:submitNow()'>"
+      "<input type=hidden name=token value=1><button>Accept</button></form>";
+  captiveportal::SyntheticIdentity identity;
+  captiveportal::makeSyntheticIdentity(1, identity);
+  captiveportal::Submission submission;
+  TEST_ASSERT_FALSE(captiveportal::buildSubmission(
+      kCrossOrigin, strlen(kCrossOrigin), "https://portal.example/",
+      identity, submission));
+  TEST_ASSERT_FALSE(captiveportal::buildSubmission(
+      kJavascript, strlen(kJavascript), "https://portal.example/",
+      identity, submission));
+}
+
+void test_captive_portal_encodes_form_without_growth() {
+  constexpr char kHtml[] =
+      "<form action='/join' method=post>"
+      "<input type=hidden name='csrf token' value='a&b'>"
+      "<input name=full_name required><button>Accept</button></form>";
+  captiveportal::SyntheticIdentity identity;
+  captiveportal::makeSyntheticIdentity(1, identity);
+  captiveportal::Submission submission;
+  TEST_ASSERT_TRUE(captiveportal::buildSubmission(
+      kHtml, strlen(kHtml), "http://portal.example/", identity,
+      submission));
+  char encoded[captiveportal::kMaximumRequestBodyLength + 1] = {};
+  TEST_ASSERT_TRUE(captiveportal::encodeSubmission(
+      submission, encoded, sizeof(encoded)));
+  TEST_ASSERT_EQUAL_STRING(
+      "csrf+token=a%26b&full_name=Travel+Clock", encoded);
+  char tooSmall[8] = {};
+  TEST_ASSERT_FALSE(captiveportal::encodeSubmission(
+      submission, tooSmall, sizeof(tooSmall)));
+}
+
+void test_captive_portal_rejects_malformed_or_excessive_forms() {
+  constexpr char kMalformed[] =
+      "<form><input name=x required";
+  constexpr char kTooManyForms[] =
+      "<form><button>Accept</button></form>"
+      "<form><button>Accept</button></form>"
+      "<form><button>Accept</button></form>"
+      "<form><button>Accept</button></form>"
+      "<form><button>Accept</button></form>";
+  constexpr char kOversizedValue[] =
+      "<form><input type=hidden name=token value='"
+      "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      "a'><button>Accept</button></form>";
+  constexpr char kTooManyControls[] =
+      "<form><input disabled><input disabled><input disabled><input disabled>"
+      "<input disabled><input disabled><input disabled><input disabled>"
+      "<input disabled><input disabled><input disabled><input disabled>"
+      "<input disabled><input disabled><input disabled><input disabled>"
+      "<input disabled><input disabled><input disabled><input disabled>"
+      "<input disabled><input disabled><input disabled><input disabled>"
+      "<input disabled><button>Accept</button></form>";
+  captiveportal::SyntheticIdentity identity;
+  captiveportal::makeSyntheticIdentity(1, identity);
+  captiveportal::Submission submission;
+  TEST_ASSERT_FALSE(captiveportal::buildSubmission(
+      kMalformed, strlen(kMalformed), "http://portal.example/", identity,
+      submission));
+  TEST_ASSERT_FALSE(captiveportal::buildSubmission(
+      kTooManyForms, strlen(kTooManyForms), "http://portal.example/",
+      identity, submission));
+  TEST_ASSERT_FALSE(captiveportal::buildSubmission(
+      kOversizedValue, strlen(kOversizedValue), "http://portal.example/",
+      identity, submission));
+  TEST_ASSERT_FALSE(captiveportal::buildSubmission(
+      kTooManyControls, strlen(kTooManyControls), "http://portal.example/",
+      identity, submission));
+}
+
 int main(int, char**) {
   UNITY_BEGIN();
   RUN_TEST(test_epoch_validation);
@@ -552,5 +887,20 @@ int main(int, char**) {
   RUN_TEST(test_bssid_backoff_has_a_hard_capacity);
   RUN_TEST(test_wifi_candidates_are_bounded_and_ranked_without_duplicates);
   RUN_TEST(test_wifi_candidate_rejects_invalid_metadata);
+  RUN_TEST(test_captive_portal_identity_uses_reserved_contact_data);
+  RUN_TEST(test_captive_portal_ntp_failure_policy_is_single_attempt);
+  RUN_TEST(test_captive_portal_redirect_timeout_and_generation_limits);
+  RUN_TEST(test_captive_portal_cookie_jar_is_bounded_and_origin_scoped);
+  RUN_TEST(test_captive_portal_reuses_identity_across_form_steps);
+  RUN_TEST(test_captive_portal_url_resolution_and_origin_checks);
+  RUN_TEST(test_captive_portal_builds_button_only_submission);
+  RUN_TEST(test_captive_portal_preserves_repeated_hidden_fields);
+  RUN_TEST(test_captive_portal_submits_a_truly_fieldless_button_form);
+  RUN_TEST(test_captive_portal_fills_common_fields_and_terms);
+  RUN_TEST(test_captive_portal_prefers_free_guest_form);
+  RUN_TEST(test_captive_portal_rejects_credential_and_payment_forms);
+  RUN_TEST(test_captive_portal_rejects_cross_origin_and_unsupported_actions);
+  RUN_TEST(test_captive_portal_encodes_form_without_growth);
+  RUN_TEST(test_captive_portal_rejects_malformed_or_excessive_forms);
   return UNITY_END();
 }

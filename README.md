@@ -32,7 +32,9 @@ case.
    page transfers the phone's time and offset automatically.
 4. If neither phone route succeeds by two minutes, tries open Wi-Fi access
    points in signal-strength order for a bounded window and requests UTC from
-   NTP, never retrying a failed BSSID in the same boot.
+   NTP. If NTP is blocked by a captive portal, it makes one bounded,
+   synthetic-data-only attempt to accept up to three ordinary guest/terms
+   forms, then retries NTP once. A failed BSSID is never retried in that boot.
 5. Persists the first successful route. BLE routes refresh every six hours;
    portal and NTP routes wait 24 hours and give BLE a 90-second opportunity
    before using Wi-Fi again. A later successful BLE update promotes any Wi-Fi
@@ -331,7 +333,8 @@ ask that connected app for fresh time about every six hours. See the
 5. The page sends only Unix UTC and the phone's current UTC offset. It sends no account, Wi-Fi password, location coordinate, or personal data.
 6. If neither BLE nor the portal succeeds by two minutes after boot, the
    clock searches open Wi-Fi for a bounded maximum of 10 minutes and asks NTP
-   for UTC.
+   for UTC. On an NTP failure it may run the bounded synthetic captive-portal
+   automator described below, then retry NTP once.
 
 The setup AP closes after success or at the two-minute fallback. With no RTC, the clock
 continues from the ESP system clock only until USB power is removed. A later
@@ -441,16 +444,44 @@ This is deliberately bounded and contains no credentials:
 - association and NTP have fixed timeouts;
 - each NTP fallback window is capped at 10 minutes and NTP-route failures then
   back off for 24 hours;
-- captive portals are not bypassed and terms are not accepted automatically;
+- after the first NTP failure on a BSSID, an HTTP connectivity probe detects
+  interception; the clock may follow at most five redirects and submit at most
+  three same-origin URL-encoded forms within 45 seconds;
+- the form parser uses fixed capacities (16 KiB response, 2 KiB request, four
+  forms, 24 controls, six cookies/1 KiB total) and rejects overflow, malformed
+  framing, JavaScript-only actions, credentials, CAPTCHA/OTP, file uploads,
+  payment, voucher, membership, reservation, and room-number flows;
+- accepted guest/terms forms receive only a random per-attempt synthetic
+  identity such as `Travel Clock`, an `@example.com` address, and a reserved
+  `+1 202-555-01xx` phone number; checkboxes, including terms, are accepted;
+- HTTPS certificate verification is deliberately disabled only inside this
+  disposable-data portal worker because trustworthy UTC may not exist yet;
 - no SSID/password is saved;
 - the station MAC is randomized once per boot before joining opportunistic networks;
 - no admin interface, telemetry, OTA, or child/family information is exposed;
 - successful NTP updates UTC while retaining the last confirmed offset.
 
-Open networks are untrusted and often unusable without a browser. The feature is a best-effort last resort, not the foundation of correct time. It can be disabled in `platformio.ini`:
+The worker runs outside the main loop, so BLE, the display, and recovery button
+remain responsive. A genuine HTTP 204 after the first NTP failure is treated as
+Internet access with UDP/123 blocked and the BSSID is skipped; a successful
+form flow still has to pass the normal NTP and time-plausibility checks. No
+portal cookies or identity survive the attempt, and successful time remains an
+`NTP` source rather than a portal time source.
+
+[RFC 8908](https://www.rfc-editor.org/info/rfc8908) defines the CAPPORT API and
+[RFC 8910](https://www.rfc-editor.org/info/rfc8910) defines captive-portal
+identification including DHCP option 114, but neither standard defines portable
+HTML form semantics. The pinned Arduino/lwIP stack does not expose option 114
+without a framework modification, so this implementation deliberately retains
+the intercepted HTTP `generate_204` probe as its discovery mechanism.
+
+Open networks are untrusted, terms and form shapes vary, and this automation is
+only a best-effort last resort. Disable all open-Wi-Fi use, or only form
+automation, with:
 
 ```ini
 -D CLOCK_ENABLE_OPEN_WIFI_FALLBACK=0
+-D CLOCK_ENABLE_CAPTIVE_PORTAL_AUTOFILL=0
 ```
 
 ## Automatic brightness
@@ -492,7 +523,8 @@ Tune the following in `include/AppConfig.h` or with PlatformIO `-D` flags:
 - light sample interval;
 - application and verbose light diagnostics;
 - fallback UTC offset;
-- open Wi-Fi enable/disable.
+- open Wi-Fi and captive-portal autofill enable/disable, maximum submissions,
+  and total autofill timeout.
 
 For a red TM1637, use a smoked red acrylic window or neutral-density film if
 brightness code 0 still lights the room. Bench-tune the OLED minimum contrast
@@ -538,7 +570,8 @@ rather than extrapolating from the bare ESP32-C3.
 | `src/main.cpp` | Atomically prioritized time-update integration and visible-state selection |
 | `src/TimeKeeper.cpp` | UTC system clock, DS3231, and persisted offset |
 | `src/BleTimeService.cpp` | Bonded BLE GATT time/status service |
-| `src/NetworkTimeService.cpp` | Captive setup portal, open-Wi-Fi backoff, and NTP |
+| `src/NetworkTimeService.cpp` | Captive setup portal, open-Wi-Fi backoff, portal-worker integration, and NTP |
+| `src/CaptivePortalAutofill*.cpp` | Bounded HTTP worker plus host-testable URL/form/encoding policy |
 | `src/DisplayController.cpp` | Display-independent visible-state and BH1750 brightness policy |
 | `src/*DisplayBackend.cpp` | Modular TM1637 and SSD1306 rendering backends |
 | `src/ClockCore.cpp` | Host-testable payload validation and light filtering |
@@ -568,7 +601,7 @@ Do not close or pot the case until every applicable physical item passes.
 
 ### Automated
 
-- [x] `uv run pio test -e native` passes (28/28).
+- [x] `uv run pio test -e native` passes (43/43).
 - [x] `uv run python -m unittest discover -s tools/tests` passes the nine
   diagnostic-runner parser and classification tests.
 - [x] `uv run pio run -e esp32-devkit-oled-128x64` completes.
@@ -641,7 +674,15 @@ Do not close or pot the case until every applicable physical item passes.
 - [ ] Open Wi-Fi association failure does not retry that BSSID before reboot.
 - [ ] One fallback window performs one Wi-Fi scan and attempts its retained
   open candidates without rescanning between failures.
-- [ ] Captive/no-Internet open networks time out and return to the clock.
+- [ ] On an operator-controlled captive network, button-only, hidden-token,
+  synthetic name/email/phone, terms-checkbox, cookie/redirect, three-step, and
+  self-signed-HTTPS forms either unlock NTP or fail within the documented
+  bounds.
+- [ ] JavaScript-only, malformed, oversized, credential, CAPTCHA/OTP, payment,
+  voucher, membership, reservation, and room-number portals fail closed and
+  return to the clock without retrying that BSSID.
+- [ ] BLE synchronization during portal HTTP activity cancels the worker,
+  stops Wi-Fi, ignores its stale result, and leaves the valid display steady.
 - [ ] With all radios unavailable, valid RTC time remains displayed.
 - [ ] With the selected source unavailable for two refresh cycles, the display
   never leaves or blinks the normal time; only the non-night OLED marker
@@ -664,7 +705,10 @@ Do not close or pot the case until every applicable physical item passes.
   AP remains available until a valid update arrives. It exposes only the
   bounded time-submission page, but nearby devices can see and join the AP.
 - The current phone payload stores the present UTC offset, not a complete IANA timezone/DST rule. Re-sync after travel or DST changes.
-- Open Wi-Fi cannot lawfully or technically bypass captive-portal terms, and NTP is not authenticated.
+- Open-Wi-Fi portal automation deliberately accepts ordinary guest/terms forms
+  with synthetic data and unverified portal TLS. It cannot execute JavaScript,
+  solve challenges, supply credentials or payments, or guarantee that a
+  network operator permits automated acceptance. NTP is not authenticated.
 - Cheap C3, DS3231, BH1750, OLED, and large TM1637 modules vary. The 0.91-inch
   unit may even use an SH1106-compatible controller despite its listing.
   Qualify the exact parts before sealing a child-facing build.
