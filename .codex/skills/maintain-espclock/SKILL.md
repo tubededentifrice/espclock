@@ -52,6 +52,9 @@ finish the investigation, then rerun cleanly without recovery before awarding
 - Keep the RTC in UTC and apply only a validated, confirmed timezone for display.
 - Treat BLE, HTTP, Wi-Fi, and browser values as hostile input.
 - Keep optional-sensor and radio failures from stopping the displayed clock.
+- Keep 80/40 MHz dynamic frequency scaling and Bluetooth modem sleep enabled
+  in C3 application profiles. Do not enable automatic CPU light sleep. Keep
+  the detailed power policy in `README.md`.
 - Never promise universal automatic phone time over generic BLE pairing.
 - Never promise guaranteed periodic iOS execution. Background updates are driven by the clock's BLE notification and can be prevented by a user force-quit.
 - Never retry a failed open-network BSSID in the same boot.

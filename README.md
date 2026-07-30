@@ -534,13 +534,22 @@ substitute.
 
 ## Power behavior
 
-The C3 travel profiles request an 80 MHz CPU clock; the classic breadboard
-profiles retain their normal clock because they are bring-up targets. The main
-task yields for 20 ms instead of polling every 5 ms, and both display backends
-avoid retransmitting an unchanged frame. The level-0 night face suppresses the
-OLED perimeter, but its one-minute cadence at levels 1–7 is unchanged. These
-changes do not alter the 250 ms display policy, TM1637 colon cadence, portal
-service, recovery gesture, or BLE callbacks.
+The C3 travel profiles use an 80 MHz maximum CPU clock and reduce it to 40 MHz
+while the processor is idle. Hardware and system locks return the CPU to the
+required frequency for active work. The classic breadboard profiles retain
+their normal clock because they are bring-up targets. The main task yields for
+20 ms instead of polling every 5 ms, and both display backends avoid
+retransmitting an unchanged frame. The level-0 night face suppresses the OLED
+perimeter, but its one-minute cadence at levels 1–7 is unchanged. These changes
+do not alter the 250 ms display policy, TM1637 colon cadence, portal service,
+recovery gesture, or BLE callbacks.
+
+The three C3 application profiles build Arduino as an ESP-IDF component with
+the checked-in `sdkconfig.c3.defaults`. This enables 80/40 MHz dynamic
+frequency scaling and Bluetooth controller modem sleep, so the processor and
+radio reduce power between events. The production log level also suppresses
+ESP-IDF information messages that would otherwise do repeated serial work
+during TM1637 updates.
 
 The selected route controls later radio use. BLE routes request a refresh every
 six hours and never start Wi-Fi. Portal and NTP routes wait 24 hours, request
@@ -556,13 +565,18 @@ and TM1637 add no light or animation. BLE advertising and bonded reconnect
 remain available throughout Wi-Fi activity; the ESP32 coexistence scheduler
 time-shares the single 2.4 GHz radio.
 
-Automatic light sleep is not enabled by the pinned precompiled Arduino-ESP32
-framework, whose power-management component is disabled. Deep sleep is
-deliberately not substituted: it would break the persistent BLE relationship,
-continuous recovery-button handling, and normal radio callbacks. Whole-device
+Automatic CPU light sleep and deep sleep are not used because they can stop
+display updates or break the persistent BLE relationship, continuous
+recovery-button handling, and normal radio callbacks. Dynamic frequency
+scaling does not suspend the CPU. BLE transmit power, advertising intervals,
+connected intervals, and all refresh rules are unchanged. Whole-device
 consumption still depends heavily on the exact display module, brightness,
 board regulator, and indicator LEDs, so measure the assembled travel build
 rather than extrapolating from the bare ESP32-C3.
+
+On 2026-07-30, one C3 Super Mini with a 128x64 OLED at fallback brightness
+level 2 measured 0.08 W after BLE synchronization. The BH1750 was disconnected.
+This is one bench result, not a guaranteed value for other boards or displays.
 
 ## Firmware layout
 
@@ -629,8 +643,10 @@ Do not close or pot the case until every applicable physical item passes.
 - [ ] Display light does not materially feed back into the BH1750.
 - [ ] Whole-device current and peak current are recorded for BLE advertising,
   BLE connected, portal, Wi-Fi/NTP, and display brightness levels 0/2/7.
-- [ ] The C3 remains stable at its configured 80 MHz through a 24-hour soak,
-  repeated portal use, BLE reconnects, and Wi-Fi/NTP attempts.
+- [ ] On each C3 display profile, Bluetooth reconnect and time sync work after
+  at least 30 minutes with Bluetooth modem sleep active.
+- [ ] The C3 remains stable with 80/40 MHz dynamic frequency scaling through a
+  24-hour soak, repeated portal use, BLE reconnects, and Wi-Fi/NTP attempts.
 - [ ] Selected board regulator and wiring remain comfortably below unsafe temperature.
 
 ### RTC and safety

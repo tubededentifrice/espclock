@@ -114,6 +114,7 @@ void NetworkTimeService::startPortal(const bool persistent) {
   }
   const IPAddress ip = WiFi.softAPIP();
   const bool dnsStarted = dns_.start(kDnsPort, "*", ip);
+  (void)dnsStarted;
   web_.begin();
   mode_ = Mode::kPortal;
   modeStartedMs_ = millis();
@@ -132,6 +133,7 @@ void NetworkTimeService::stopPortal() {
   dns_.stop();
   web_.stop();
   const bool stopped = WiFi.softAPdisconnect(true);
+  (void)stopped;
   CLOCK_DIAGNOSTIC_PRINTF("[WiFi] portal stop=%s\n",
                           stopped ? "ok" : "failed");
 }

@@ -8,6 +8,20 @@
 #include "Diagnostics.h"
 #include "TimeKeeper.h"
 
+#if defined(CONFIG_IDF_TARGET_ESP32C3) && !CONFIG_BT_CTRL_MODEM_SLEEP
+#error "ESP32-C3 application profiles require Bluetooth modem sleep."
+#endif
+
+#if defined(CONFIG_IDF_TARGET_ESP32C3) && \
+    (!defined(CONFIG_PM_ENABLE) || !defined(CONFIG_PM_DFS_INIT_AUTO))
+#error "ESP32-C3 application profiles require automatic CPU frequency scaling."
+#endif
+
+#if defined(CONFIG_IDF_TARGET_ESP32C3) && \
+    defined(CONFIG_FREERTOS_USE_TICKLESS_IDLE)
+#error "ESP32-C3 application profiles must not enable automatic light sleep."
+#endif
+
 namespace {
 // Custom service payload is documented in ClockCore.h. Using a custom
 // characteristic is intentional: the standard Current Time Service models the
@@ -175,6 +189,8 @@ void BleTimeService::begin(const TimeUpdateHandler handler,
   const size_t advertisementBytes =
       advertisementData.getPayload().size();
   const size_t scanResponseBytes = scanResponseData.getPayload().size();
+  (void)advertisementBytes;
+  (void)scanResponseBytes;
   advertising->setAdvertisementData(advertisementData);
   advertising->setScanResponseData(scanResponseData);
   advertising->setScanResponse(true);
@@ -183,6 +199,7 @@ void BleTimeService::begin(const TimeUpdateHandler handler,
   advertising->setMaxInterval(
       advertisingIntervalUnits(config::kBleFastAdvertisingMaxMs));
   const bool advertisingStarted = advertising->start();
+  (void)advertisingStarted;
   CLOCK_DIAGNOSTIC_PRINTF(
       "[BLE] advertising start=%s name=%s service=%s adv_bytes=%u "
       "scan_response_bytes=%u connectable=yes bondable=yes "
@@ -438,6 +455,7 @@ bool BleTimeService::transitionToSlowAdvertising() {
   slowAdvertisingConfigured_.store(true);
   const bool shouldAdvertise = !connected();
   const bool restarted = !shouldAdvertise || advertising->start();
+  (void)restarted;
   CLOCK_DIAGNOSTIC_PRINTF(
       "[BLE] advertising duty=slow interval_ms=%lu-%lu restart=%s\n",
       static_cast<unsigned long>(config::kBleSlowAdvertisingMinMs),

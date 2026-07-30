@@ -349,6 +349,12 @@ Periodic refresh never replaces or blinks valid time. OLED levels above night
 mode add one static 3×3 top-right overdue marker; full-night level 0 and TM1637
 add no refresh light or animation.
 
+C3 application profiles must use 80/40 MHz dynamic frequency scaling and
+Bluetooth controller modem sleep. The processor and controller return to their
+active states for scheduled work. Automatic CPU light sleep must stay
+disabled. Do not use deep sleep, change BLE range or timing, or delay
+recovery-button polling as a power shortcut.
+
 The four-digit display needs an unambiguous but quiet state vocabulary documented
 in the README, for example:
 
