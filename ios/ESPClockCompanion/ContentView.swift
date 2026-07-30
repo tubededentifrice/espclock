@@ -2,36 +2,107 @@ import SwiftUI
 
 struct ContentView: View {
     @ObservedObject var syncManager: ClockSyncManager
-    @State private var confirmingRemoval = false
+    @State private var clockPendingRemoval: ClockViewState?
 
     var body: some View {
         NavigationStack {
             Form {
-                Section("Clock") {
-                    LabeledContent("Accessory") {
-                        Text(syncManager.clockName ?? "Not added")
-                    }
+                Section("Clock setup") {
                     LabeledContent("Status") {
-                        Text(syncManager.connectionText)
+                        Text(syncManager.setupText)
                             .multilineTextAlignment(.trailing)
                     }
-                    LabeledContent("Last synchronized") {
-                        if let date = syncManager.lastSyncDate {
-                            Text(date, format: .dateTime.day().month().hour().minute())
-                        } else {
-                            Text("Never")
-                        }
+
+                    Button(
+                        syncManager.clocks.isEmpty
+                            ? "Add Kids Clock"
+                            : "Add Another Clock"
+                    ) {
+                        syncManager.addClock()
                     }
                 }
 
-                Section("Automatic synchronization") {
-                    Toggle("Keep this clock synchronized", isOn: $syncManager.automaticSyncEnabled)
-                        .disabled(!syncManager.hasAuthorizedClock)
-                    Text(
-                        "The iPhone keeps a low-power Bluetooth connection. The clock asks for fresh time about every six hours."
-                    )
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
+                if syncManager.clocks.isEmpty {
+                    Section("Clocks") {
+                        Text("No clocks are connected to this app.")
+                            .foregroundStyle(.secondary)
+                    }
+                } else {
+                    ForEach(syncManager.clocks) { clock in
+                        Section(clock.name) {
+                            LabeledContent("Status") {
+                                Text(clock.connectionText)
+                                    .multilineTextAlignment(.trailing)
+                            }
+                            LabeledContent("Last synchronized") {
+                                if let date = clock.lastSyncDate {
+                                    Text(
+                                        date,
+                                        format: .dateTime
+                                            .day()
+                                            .month()
+                                            .hour()
+                                            .minute()
+                                    )
+                                } else {
+                                    Text("Never")
+                                }
+                            }
+
+                            Toggle(
+                                "Keep synchronized",
+                                isOn: Binding(
+                                    get: { clock.automaticSyncEnabled },
+                                    set: {
+                                        syncManager.setAutomaticSync(
+                                            $0,
+                                            for: clock.id
+                                        )
+                                    }
+                                )
+                            )
+
+                            if let error = clock.lastError {
+                                Text(error)
+                                    .foregroundStyle(.red)
+                            }
+
+                            Button("Sync Now") {
+                                syncManager.syncNow(clock.id)
+                            }
+
+                            Button("Remove Clock", role: .destructive) {
+                                clockPendingRemoval = clock
+                            }
+                            .confirmationDialog(
+                                "Remove \(clock.name)?",
+                                isPresented: Binding(
+                                    get: {
+                                        clockPendingRemoval?.id == clock.id
+                                    },
+                                    set: {
+                                        if !$0,
+                                           clockPendingRemoval?.id == clock.id {
+                                            clockPendingRemoval = nil
+                                        }
+                                    }
+                                ),
+                                titleVisibility: .visible
+                            ) {
+                                Button(
+                                    "Remove \(clock.name)",
+                                    role: .destructive
+                                ) {
+                                    syncManager.forgetClock(clock.id)
+                                    clockPendingRemoval = nil
+                                }
+                            } message: {
+                                Text(
+                                    "You may need the clock's five-second BOOT recovery before you add it again."
+                                )
+                            }
+                        }
+                    }
                 }
 
                 if let error = syncManager.lastError {
@@ -41,25 +112,9 @@ struct ContentView: View {
                     }
                 }
 
-                Section {
-                    if syncManager.hasAuthorizedClock {
-                        Button("Sync Now") {
-                            syncManager.syncNow()
-                        }
-
-                        Button("Remove Clock", role: .destructive) {
-                            confirmingRemoval = true
-                        }
-                    } else {
-                        Button("Add Kids Clock") {
-                            syncManager.addClock()
-                        }
-                    }
-                }
-
                 Section("Important") {
                     Text(
-                        "Keep only one family iPhone's automatic sync enabled at a time. Turn it off here to let another authorized phone take over."
+                        "This iPhone can keep a separate Bluetooth connection to each added clock. Each clock still accepts only one connected phone at a time."
                     )
                     .font(.footnote)
                     Text(
@@ -72,20 +127,7 @@ struct ContentView: View {
                     .font(.footnote)
                 }
             }
-            .navigationTitle("Kids Clock")
-            .confirmationDialog(
-                "Remove this clock?",
-                isPresented: $confirmingRemoval,
-                titleVisibility: .visible
-            ) {
-                Button("Remove Clock", role: .destructive) {
-                    syncManager.forgetClock()
-                }
-            } message: {
-                Text(
-                    "You may need the clock's five-second BOOT recovery before adding it again."
-                )
-            }
+            .navigationTitle("Kids Clocks")
         }
     }
 }

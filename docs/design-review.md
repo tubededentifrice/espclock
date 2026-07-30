@@ -9,7 +9,9 @@
 
 Status: **conditional go, product dependency resolved for iPhone**. The
 repository now includes the recommended iOS 18+ AccessorySetupKit/Core Bluetooth
-companion, while retaining the no-app captive portal and RTC fallbacks. A phone
+companion. One app can manage independent persistent connections to many clocks,
+while each clock still accepts one connected phone. The design retains the
+no-app captive portal and RTC fallbacks. A phone
 still does not automatically connect to an arbitrary BLE peripheral and
 volunteer its clock merely because it was paired; the app and initial
 phone-level approval are required. Fresh onboarding, encrypted synchronization,
@@ -398,7 +400,11 @@ No item below should be replaced by “works on my phone.”
       rejected; tests and documentation do not claim cryptographic replay
       protection.
 - [ ] Firmware accepts only one simultaneous BLE connection; two authorized
-      iPhones hand off using the automatic-sync toggle without oscillation.
+      iPhones hand off that clock using its automatic-sync toggle without
+      oscillation.
+- [ ] One iPhone app keeps at least three clocks connected at the same time.
+      Each clock's retry, acknowledgement, manual-sync, automatic-sync, and
+      removal state remains independent.
 - [ ] Fill the trusted/bond cache, add one more phone, reboot, and verify the
       documented first-enumerated eviction behavior. Also cancel a pairing at
       capacity and verify the documented possible eviction/recovery path.

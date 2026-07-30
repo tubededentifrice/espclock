@@ -54,7 +54,7 @@ Approving a Bluetooth pairing authorizes a connection; it does not universally m
 - The ESP32-C3 has BLE, not Bluetooth Classic PAN, so it cannot consume Bluetooth tethering.
 - NTP provides UTC only. It does not reveal the local timezone.
 
-The repository therefore includes an iOS 18+ [companion app](ios/README.md), an encrypted/bonded BLE write service, and a universal no-app captive-portal fallback. The app uses AccessorySetupKit onboarding and a long-lived low-duty connection so the clock can request time about every six hours. The clock remembers which route first synchronized it and avoids powering unrelated Wi-Fi paths afterward. BLE remains available as the only automatic route upgrade. Open Wi-Fi/NTP refreshes UTC but retains the last phone-confirmed UTC offset. Concurrent updates are arbitrated atomically in the order BLE, portal, then NTP, so a lower-trust callback cannot overwrite a pending higher-trust update.
+The repository therefore includes an iOS 18+ [companion app](ios/README.md), an encrypted/bonded BLE write service, and a universal no-app captive-portal fallback. The app uses AccessorySetupKit onboarding and keeps a separate low-duty connection to each authorized clock that has automatic sync enabled, so each clock can request time about every six hours. The app sets no fixed clock-count limit, but iOS radio and memory resources determine the practical number of simultaneous connections. Each clock remembers which route first synchronized it and avoids powering unrelated Wi-Fi paths afterward. BLE remains available as the only automatic route upgrade. Open Wi-Fi/NTP refreshes UTC but retains the last phone-confirmed UTC offset. Concurrent updates are arbitrated atomically in the order BLE, portal, then NTP, so a lower-trust callback cannot overwrite a pending higher-trust update.
 
 This is an honest limit of phone operating systems and profiles, not an ESP32 coding omission. See [hardware research](docs/hardware-research.md) and the [adversarial design review](docs/design-review.md) for sources and deeper tradeoffs.
 
@@ -296,10 +296,11 @@ The native Swift companion lives in `ios/` and requires iOS 18 or newer. Open
 iPhone, then press **Run**. It contains no third-party packages, account,
 location permission, network service, advertising, or analytics.
 
-Power-cycle the clock immediately before tapping **Add Kids Clock**. Apple's
-accessory picker handles the required phone-level approval. Leave automatic
-sync enabled on one family iPhone and do not force-quit the app; the clock will
-ask that connected app for fresh time about every six hours. See the
+Power-cycle each clock immediately before tapping **Add Kids Clock** or **Add
+Another Clock**. Apple's accessory picker handles the required phone-level
+approval. One iPhone can keep automatic sync enabled for many clocks. For each
+clock, enable automatic sync on only one family iPhone. Do not force-quit the
+app; each connected clock will ask it for fresh time about every six hours. See the
 [complete iPhone install, behavior, recovery, and test guide](ios/README.md).
 
 ## First use
@@ -426,7 +427,7 @@ Accepted epochs are 2024-01-01 through 2099-12-31. Offsets must be between UTC�
 
 The status characteristic reports `time-needed`, `sync-request`, `time-pending`, `time-accepted`, `time-rejected`, `rate-limited`, or `invalid-time`. The included iPhone app connects during the two-minute new-phone window for its first bond, enables status notifications, writes the phone's current UTC/offset, waits for `time-accepted`, and retains a low-duty connection. The firmware reissues `sync-request` when notifications are subscribed and approximately every six hours thereafter. The time characteristic includes both the base GATT write property and its encrypted-write requirement. Status values are exact UTF-8 bytes without a trailing NUL; either contract violation breaks Core Bluetooth interoperability even if the clock applies the payload.
 
-BLE bonding capacity is finite even though any family phone may take a turn. This build provisions **16 bond and notification records** and evicts the first bond returned by NimBLE when full so a new family phone can recover the clock. A pairing attempt at capacity must make room before authentication, so a cancelled attempt may evict one existing bond; the acceptance checklist covers this recovery edge case. “Any number of phones” means the clock is not owned by one account or hard-coded handset, not infinite simultaneous connections. Firmware is compiled for one simultaneous connection, and only one iPhone should leave automatic synchronization enabled at a time; its persistent connection is the active sync owner until the app toggle is turned off or it leaves range.
+BLE bonding capacity is finite even though any family phone may take a turn. This build provisions **16 bond and notification records** and evicts the first bond returned by NimBLE when full so a new family phone can recover the clock. A pairing attempt at capacity must make room before authentication, so a cancelled attempt may evict one existing bond; the acceptance checklist covers this recovery edge case. “Any number of phones” means the clock is not owned by one account or hard-coded handset, not infinite simultaneous connections. Each clock's firmware is compiled for one simultaneous connection, and only one iPhone should leave automatic synchronization enabled for that clock. The iPhone app can hold independent connections to many clocks at the same time.
 
 After the clock has a persistent confirmed-sync marker, phone, portal, and NTP corrections must be within five minutes of its running time. An uninitialized clock is allowed one arbitrary valid correction; the BOOT recovery gesture deliberately reopens that path. This rejects captured old values and arbitrary large forward/backward jumps during normal operation while retaining a no-computer recovery path. BLE writes are also limited to one accepted update per 30 seconds.
 
@@ -610,8 +611,8 @@ Do not close or pot the case until every applicable physical item passes.
 - [x] No firmware compiler warnings are reported.
 - [x] Normal icon-inclusive Swift app and test-bundle builds complete for a
   generic iPhone target.
-- [x] All 13 packet and onboarding-lifecycle XCTests pass on the iOS 26.5
-  Simulator.
+- [x] All 19 multi-clock packet, preference, and onboarding-lifecycle XCTests
+  pass on the iOS 26.5 Simulator.
 
 ### Power, display, and sensor
 
@@ -667,7 +668,12 @@ Do not close or pot the case until every applicable physical item passes.
   background at five metres.
 - [ ] Locked/background iPhone answers a six-hour `sync-request`.
 - [ ] Core Bluetooth restores after system termination, without user force-quit.
-- [ ] Two iPhones can hand off using the automatic-sync toggle.
+- [ ] One iPhone maintains simultaneous connections to at least three clocks;
+  each clock reconnects, requests, acknowledges, and reports errors without
+  changing another clock's state.
+- [ ] Disabling or removing one clock leaves the other clock connections active.
+- [ ] Two iPhones can hand off one clock using that clock's automatic-sync
+  toggle.
 - [ ] Bad epoch, bad offset, oversized payload, and trailing junk are rejected.
 - [ ] A plausible RTC that is hours wrong can be recovered with the five-second BOOT gesture and corrected without a computer.
 - [ ] UTC−12, UTC+14, `+05:30`, and `+05:45` display correctly.
@@ -697,7 +703,10 @@ Do not close or pot the case until every applicable physical item passes.
 ## Known limitations
 
 - The included app is iPhone-only and requires iOS 18+. iOS background BLE is event-driven and best-effort: force-quitting the app, disabling Bluetooth, leaving range, expired development signing, or some reboot/first-unlock states stop updates until the app can run again. The DS3231 and captive portal are the resilience layers.
-- One iPhone owns the persistent BLE sync connection at a time. Other authorized family phones can take over after automatic sync is disabled on the active phone.
+- One iPhone can own persistent BLE sync connections to many clocks. Each clock
+  still accepts only one connected iPhone, so other authorized family phones
+  can take over that clock only after automatic sync is disabled on the active
+  phone.
 - The first successful source is sticky to avoid unnecessary radio power:
   portal and NTP routes do not automatically switch to one another. BLE may
   always promote either route; the BOOT recovery gesture clears the route.

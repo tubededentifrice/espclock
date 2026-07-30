@@ -4,37 +4,69 @@ import Foundation
 import os
 import UIKit
 
+struct ClockViewState: Identifiable, Equatable {
+    let id: UUID
+    let name: String
+    let connectionText: String
+    let lastSyncDate: Date?
+    let lastError: String?
+    let isConnected: Bool
+    let automaticSyncEnabled: Bool
+}
+
 @MainActor
 final class ClockSyncManager: NSObject, ObservableObject {
     static let serviceUUID = CBUUID(string: "7F510000-1B15-4DC7-9F3F-19B30A6F6A21")
     static let timeUUID = CBUUID(string: "7F510001-1B15-4DC7-9F3F-19B30A6F6A21")
     static let statusUUID = CBUUID(string: "7F510002-1B15-4DC7-9F3F-19B30A6F6A21")
+    static let gapServiceUUID = CBUUID(string: "1800")
+    static let deviceNameUUID = CBUUID(string: "2A00")
 
-    @Published private(set) var connectionText = "Ready to add clock"
-    @Published private(set) var clockName: String?
-    @Published private(set) var lastSyncDate: Date?
+    @Published private(set) var clocks: [ClockViewState] = []
+    @Published private(set) var setupText = "Starting accessory setup…"
     @Published private(set) var lastError: String?
-    @Published private(set) var isConnected = false
-    @Published private(set) var hasAuthorizedClock = false
-    @Published var automaticSyncEnabled: Bool {
-        didSet {
-            defaults.set(automaticSyncEnabled, forKey: Keys.automaticSync)
-            if automaticSyncEnabled {
-                reconnectAttempts = 0
-                connectAuthorizedClock()
-            } else {
-                stopConnection()
-            }
-        }
-    }
 
     private enum Keys {
-        static let automaticSync = "automaticSyncEnabled"
-        static let lastSync = "lastSyncDate"
         static let restorationIdentifier = "centralRestorationIdentifier"
     }
 
+    private final class ClockRuntime {
+        let identifier: UUID
+        var displayName: String
+        var connectionText: String
+        var lastSyncDate: Date?
+        var lastError: String?
+        var isConnected = false
+        var automaticSyncEnabled: Bool
+        var peripheral: CBPeripheral?
+        var timeCharacteristic: CBCharacteristic?
+        var statusCharacteristic: CBCharacteristic?
+        var connectPending = false
+        var sentInitialTimeForConnection = false
+        var awaitingClockAcceptance = false
+        var manualSyncRequested = false
+        var acknowledgementTimeout: DispatchWorkItem?
+        var reconnectWorkItem: DispatchWorkItem?
+        var reconnectAttempts = 0
+
+        init(
+            clock: AuthorizedClock,
+            bluetoothName: String?,
+            automaticSyncEnabled: Bool,
+            lastSyncDate: Date?
+        ) {
+            identifier = clock.bluetoothIdentifier
+            displayName = bluetoothName ?? clock.displayName
+            connectionText = automaticSyncEnabled
+                ? "Waiting for Bluetooth…"
+                : "Automatic sync is off"
+            self.automaticSyncEnabled = automaticSyncEnabled
+            self.lastSyncDate = lastSyncDate
+        }
+    }
+
     private let defaults = UserDefaults.standard
+    private let preferences = ClockPreferenceStore()
     private let accessorySession = ASAccessorySession()
     private let logger = Logger(
         subsystem: Bundle.main.bundleIdentifier ?? "com.espclock.KidsClockCompanion",
@@ -42,17 +74,9 @@ final class ClockSyncManager: NSObject, ObservableObject {
     )
     private var onboardingLifecycle = OnboardingLifecycle()
     private var centralManager: CBCentralManager?
-    private var activePeripheral: CBPeripheral?
-    private var timeCharacteristic: CBCharacteristic?
-    private var statusCharacteristic: CBCharacteristic?
-    private var connectPending = false
-    private var sentInitialTimeForConnection = false
-    private var awaitingClockAcceptance = false
-    private var manualSyncRequested = false
-    private var acknowledgementTimeout: DispatchWorkItem?
-    private var reconnectWorkItem: DispatchWorkItem?
+    private var runtimes: [UUID: ClockRuntime] = [:]
     private var scanTimeout: DispatchWorkItem?
-    private var reconnectAttempts = 0
+    private var scanTargetIdentifiers: Set<UUID> = []
     private var accessorySessionActivated = false
 
 #if DEBUG
@@ -62,9 +86,6 @@ final class ClockSyncManager: NSObject, ObservableObject {
 #endif
 
     override init() {
-        automaticSyncEnabled =
-            UserDefaults.standard.object(forKey: Keys.automaticSync) as? Bool ?? true
-        lastSyncDate = UserDefaults.standard.object(forKey: Keys.lastSync) as? Date
         super.init()
 
         accessorySession.activate(on: .main) { [weak self] event in
@@ -79,11 +100,6 @@ final class ClockSyncManager: NSObject, ObservableObject {
             return
         }
         guard !onboardingLifecycle.pickerIsActive else { return }
-
-        if centralManager != nil {
-            logger.error("Discarding unexpected central manager before picker presentation")
-            tearDownCoreBluetooth()
-        }
 
         let descriptor = ASDiscoveryDescriptor()
         descriptor.bluetoothServiceUUID = Self.serviceUUID
@@ -101,7 +117,7 @@ final class ClockSyncManager: NSObject, ObservableObject {
         )
         lastError = nil
         onboardingLifecycle.pickerWillPresent()
-        connectionText = onboardingLifecycle.radioStatusText(for: .unknown)
+        setupText = onboardingLifecycle.radioStatusText(for: .unknown)
         logger.info(
             "Opening accessory picker; centralManagerExists=\(self.centralManager != nil, privacy: .public)"
         )
@@ -115,60 +131,112 @@ final class ClockSyncManager: NSObject, ObservableObject {
                 self.handlePickerFailure(error, prefix: "Clock setup failed")
                 if let action = self.onboardingLifecycle.pickerFailed() {
                     self.handleLifecycleAction(action)
-                } else {
-                    self.tearDownCoreBluetooth()
                 }
-                self.connectionText = "Ready to add clock"
+                self.updateSetupText()
             }
         }
     }
 
-    func syncNow() {
-        lastError = nil
-        manualSyncRequested = true
-        reconnectAttempts = 0
-        guard isConnected else {
-            connectionText = "Connecting…"
-            connectAuthorizedClock(allowWhenAutomaticOff: true)
-            return
+    func setAutomaticSync(_ enabled: Bool, for identifier: UUID) {
+        guard let runtime = runtimes[identifier] else { return }
+        runtime.automaticSyncEnabled = enabled
+        preferences.setAutomaticSync(enabled, for: identifier)
+        runtime.lastError = nil
+        if enabled {
+            runtime.reconnectAttempts = 0
+            runtime.connectionText = "Connecting…"
+            connectAuthorizedClocks()
+        } else {
+            stopConnection(runtime, finalText: "Automatic sync is off")
+            updateScanState()
         }
-        sendPhoneTime()
+        publishClocks()
     }
 
-    func forgetClock() {
-        guard let identifier = onboardingLifecycle.selectedClock?.bluetoothIdentifier,
-              let accessory = authorizedAccessories.first(where: {
-                  $0.bluetoothIdentifier == identifier
-              }) else {
+    func syncNow(_ identifier: UUID) {
+        guard let runtime = runtimes[identifier] else { return }
+        runtime.lastError = nil
+        runtime.manualSyncRequested = true
+        runtime.reconnectAttempts = 0
+        guard runtime.isConnected else {
+            runtime.connectionText = "Connecting…"
+            publishClocks()
+            connectAuthorizedClocks()
             return
         }
-        stopConnection()
+        sendPhoneTime(to: runtime)
+    }
+
+    func forgetClock(_ identifier: UUID) {
+        guard let accessory = authorizedAccessories.first(where: {
+            $0.bluetoothIdentifier == identifier
+        }) else {
+            return
+        }
+        if let runtime = runtimes[identifier] {
+            stopConnection(runtime, finalText: "Removing…")
+        }
         accessorySession.removeAccessory(accessory) { [weak self] error in
             Task { @MainActor in
                 guard let self else { return }
                 if let error {
-                    self.lastError = self.privacySafeError(
-                        error,
-                        prefix: "Could not remove the clock"
-                    )
-                } else {
-                    if let action = self.onboardingLifecycle.accessoryRemoved() {
-                        self.handleLifecycleAction(action)
-                    } else {
-                        self.tearDownCoreBluetooth()
+                    if let runtime = self.runtimes[identifier] {
+                        runtime.lastError = self.privacySafeError(
+                            error,
+                            prefix: "Could not remove the clock"
+                        )
                     }
-                    self.hasAuthorizedClock = false
-                    self.clockName = nil
-                    self.connectionText = "Ready to add clock"
+                    self.publishClocks()
+                    self.connectAuthorizedClocks()
+                    return
                 }
+
+                self.removeRuntime(identifier)
+                let remaining = self.onboardingLifecycle.authorizedClocks.filter {
+                    $0.bluetoothIdentifier != identifier
+                }
+                if let action = self.onboardingLifecycle.replaceAuthorizedClocks(
+                    with: remaining
+                ) {
+                    self.handleLifecycleAction(action)
+                }
+                self.preferences.removeClock(identifier)
+                self.updateSetupText()
             }
         }
+    }
+
+    static func validatedClockName(_ candidate: String?) -> String? {
+        let prefix = "KidsClock-"
+        guard let candidate,
+              candidate.hasPrefix(prefix) else {
+            return nil
+        }
+        let suffix = candidate.dropFirst(prefix.count)
+        guard suffix.count == 4,
+              suffix.allSatisfy(\.isHexDigit) else {
+            return nil
+        }
+        return prefix + suffix.uppercased()
+    }
+
+    private func applyClockName(
+        _ candidate: String?,
+        to runtime: ClockRuntime
+    ) {
+        guard let name = Self.validatedClockName(candidate) else { return }
+        runtime.displayName = name
+        preferences.setBluetoothName(name, for: runtime.identifier)
     }
 
     private var authorizedAccessories: [ASAccessory] {
         accessorySession.accessories.filter {
             $0.state == .authorized && $0.bluetoothIdentifier != nil
         }
+    }
+
+    private var currentAuthorizedClocks: [AuthorizedClock] {
+        authorizedAccessories.compactMap(authorizedClock(from:))
     }
 
     private func handleAccessoryEvent(_ event: ASAccessoryEvent) {
@@ -185,62 +253,44 @@ final class ClockSyncManager: NSObject, ObservableObject {
         switch event.eventType {
         case .activated:
             accessorySessionActivated = true
-            refreshAuthorizedAccessoryState()
-            if let action = onboardingLifecycle.sessionActivated(
-                with: currentAuthorizedClock()
-            ) {
+            let authorized = currentAuthorizedClocks
+            preferences.migrateLegacyPreferences(for: authorized)
+            reconcileAuthorizedClocks(authorized)
+            if let action = onboardingLifecycle.sessionActivated(with: authorized) {
                 handleLifecycleAction(action)
             }
+            updateSetupText()
         case .accessoryAdded:
-            if let clock = authorizedClock(from: event.accessory) ?? currentAuthorizedClock() {
+            if let clock = authorizedClock(from: event.accessory) {
                 onboardingLifecycle.accessoryAdded(clock)
-                hasAuthorizedClock = true
-                clockName = clock.displayName
+                reconcileAuthorizedClocks(onboardingLifecycle.authorizedClocks)
+                if !onboardingLifecycle.pickerIsActive {
+                    connectAuthorizedClocks()
+                }
             } else {
-                refreshAuthorizedAccessoryState()
+                reconcileWithAccessorySession()
             }
         case .accessoryChanged:
-            refreshAuthorizedAccessoryState()
-            if let clock = currentAuthorizedClock() {
-                onboardingLifecycle.accessoryAdded(clock)
-                if !onboardingLifecycle.pickerIsActive, centralManager == nil,
-                   let action = onboardingLifecycle.sessionActivated(with: clock) {
-                    handleLifecycleAction(action)
-                }
-            } else {
-                if let action = onboardingLifecycle.accessoryRemoved() {
-                    handleLifecycleAction(action)
-                } else {
-                    tearDownCoreBluetooth()
-                }
-                connectionText = "Ready to add clock"
+            reconcileWithAccessorySession()
+            if !onboardingLifecycle.pickerIsActive {
+                connectAuthorizedClocks()
             }
         case .accessoryRemoved:
-            if let action = onboardingLifecycle.accessoryRemoved() {
-                handleLifecycleAction(action)
-            } else {
-                tearDownCoreBluetooth()
-            }
-            refreshAuthorizedAccessoryState()
-            connectionText = "Ready to add clock"
+            reconcileWithAccessorySession()
         case .pickerDidPresent:
             onboardingLifecycle.pickerDidPresent()
-            connectionText = "Finding accessories…"
+            setupText = "Finding accessories…"
             logger.info(
                 "Accessory picker presented; centralManagerExists=\(self.centralManager != nil, privacy: .public)"
             )
         case .pickerDidDismiss:
-            if onboardingLifecycle.selectedClock == nil,
-               let clock = currentAuthorizedClock() {
-                onboardingLifecycle.accessoryAdded(clock)
-            }
+            reconcileWithAccessorySession()
             if let action = onboardingLifecycle.pickerDidDismiss() {
-                manualSyncRequested = !automaticSyncEnabled
                 handleLifecycleAction(action)
-            } else if onboardingLifecycle.selectedClock == nil {
-                tearDownCoreBluetooth()
-                connectionText = "Ready to add clock"
+            } else {
+                connectAuthorizedClocks()
             }
+            updateSetupText()
         case .pickerSetupFailed:
             if let error = event.error {
                 handlePickerFailure(error, prefix: "The clock could not be paired")
@@ -249,10 +299,8 @@ final class ClockSyncManager: NSObject, ObservableObject {
             }
             if let action = onboardingLifecycle.pickerFailed() {
                 handleLifecycleAction(action)
-            } else {
-                tearDownCoreBluetooth()
             }
-            connectionText = "Ready to add clock"
+            updateSetupText()
         case .invalidated:
             accessorySessionActivated = false
             if let error = event.error {
@@ -263,20 +311,74 @@ final class ClockSyncManager: NSObject, ObservableObject {
             } else {
                 lastError = "Accessory setup became unavailable."
             }
-            if let action = onboardingLifecycle.accessoryRemoved() {
+            reconcileAuthorizedClocks([])
+            if let action = onboardingLifecycle.sessionInvalidated() {
                 handleLifecycleAction(action)
             } else {
                 tearDownCoreBluetooth()
             }
+            setupText = "Accessory setup is unavailable"
         default:
             break
         }
     }
 
-    private func refreshAuthorizedAccessoryState() {
-        let clock = currentAuthorizedClock()
-        hasAuthorizedClock = clock != nil
-        clockName = clock?.displayName
+    private func reconcileWithAccessorySession() {
+        let authorized = currentAuthorizedClocks
+        reconcileAuthorizedClocks(authorized)
+        if let action = onboardingLifecycle.replaceAuthorizedClocks(with: authorized) {
+            handleLifecycleAction(action)
+        }
+        updateSetupText()
+    }
+
+    private func reconcileAuthorizedClocks(_ authorized: [AuthorizedClock]) {
+        let authorizedIdentifiers = Set(authorized.map(\.bluetoothIdentifier))
+        for identifier in Array(runtimes.keys) where
+            !authorizedIdentifiers.contains(identifier) {
+            removeRuntime(identifier)
+        }
+        for clock in authorized {
+            if let runtime = runtimes[clock.bluetoothIdentifier] {
+                if let peripheralName = Self.validatedClockName(
+                    runtime.peripheral?.name
+                ) {
+                    runtime.displayName = peripheralName
+                    preferences.setBluetoothName(
+                        peripheralName,
+                        for: clock.bluetoothIdentifier
+                    )
+                } else if let savedName = preferences.bluetoothName(
+                    for: clock.bluetoothIdentifier
+                ) {
+                    runtime.displayName = savedName
+                } else {
+                    runtime.displayName = clock.displayName
+                }
+            } else {
+                runtimes[clock.bluetoothIdentifier] = ClockRuntime(
+                    clock: clock,
+                    bluetoothName: preferences.bluetoothName(
+                        for: clock.bluetoothIdentifier
+                    ),
+                    automaticSyncEnabled: preferences.automaticSync(
+                        for: clock.bluetoothIdentifier
+                    ),
+                    lastSyncDate: preferences.lastSync(
+                        for: clock.bluetoothIdentifier
+                    )
+                )
+            }
+        }
+        publishClocks()
+    }
+
+    private func removeRuntime(_ identifier: UUID) {
+        guard let runtime = runtimes[identifier] else { return }
+        stopConnection(runtime, finalText: nil)
+        runtimes.removeValue(forKey: identifier)
+        updateScanState()
+        publishClocks()
     }
 
     private func authorizedClock(from accessory: ASAccessory?) -> AuthorizedClock? {
@@ -291,24 +393,20 @@ final class ClockSyncManager: NSObject, ObservableObject {
         )
     }
 
-    private func currentAuthorizedClock() -> AuthorizedClock? {
-        authorizedClock(from: authorizedAccessories.first)
-    }
-
     private func handleLifecycleAction(_ action: OnboardingLifecycleAction) {
         switch action {
-        case .initializeBluetoothAndConnect(let identifier):
-            initializeCoreBluetooth(authorizedIdentifier: identifier)
+        case .initializeBluetoothAndConnect:
+            initializeCoreBluetooth()
         case .tearDownBluetooth:
             tearDownCoreBluetooth()
         }
     }
 
-    private func initializeCoreBluetooth(authorizedIdentifier: UUID) {
+    private func initializeCoreBluetooth() {
         guard centralManager == nil,
               accessorySessionActivated,
-              onboardingLifecycle.selectedClock?.bluetoothIdentifier ==
-                  authorizedIdentifier else {
+              !onboardingLifecycle.authorizedClocks.isEmpty else {
+            connectAuthorizedClocks()
             return
         }
         let restorationIdentifier: String
@@ -318,7 +416,7 @@ final class ClockSyncManager: NSObject, ObservableObject {
             restorationIdentifier = "com.espclock.companion.central.\(UUID().uuidString)"
             defaults.set(restorationIdentifier, forKey: Keys.restorationIdentifier)
         }
-        connectionText = onboardingLifecycle.radioStatusText(for: .unknown)
+        setupText = onboardingLifecycle.radioStatusText(for: .unknown)
         logger.info("Creating post-authorization central manager")
         centralManager = CBCentralManager(
             delegate: self,
@@ -328,9 +426,16 @@ final class ClockSyncManager: NSObject, ObservableObject {
     }
 
     private func tearDownCoreBluetooth() {
-        stopConnection()
+        scanTimeout?.cancel()
+        scanTimeout = nil
+        scanTargetIdentifiers = []
+        centralManager?.stopScan()
+        for runtime in runtimes.values {
+            stopConnection(runtime, finalText: nil)
+        }
         centralManager?.delegate = nil
         centralManager = nil
+        publishClocks()
     }
 
     private func handlePickerFailure(_ error: Error, prefix: String) {
@@ -386,71 +491,115 @@ final class ClockSyncManager: NSObject, ObservableObject {
         }
     }
 
-    private func connectAuthorizedClock(allowWhenAutomaticOff: Bool = false) {
-        guard automaticSyncEnabled || allowWhenAutomaticOff,
-              accessorySessionActivated,
-              let centralManager,
-              centralManager.state == .poweredOn,
-              let identifier = onboardingLifecycle.selectedClock?.bluetoothIdentifier else {
-            return
+    private func updateSetupText() {
+        if onboardingLifecycle.pickerIsActive {
+            setupText = "Finding accessories…"
+        } else if clocks.isEmpty {
+            setupText = accessorySessionActivated
+                ? "Ready to add clock"
+                : "Starting accessory setup…"
+        } else {
+            setupText = clocks.count == 1
+                ? "Managing 1 clock"
+                : "Managing \(clocks.count) clocks"
         }
+    }
 
-        if activePeripheral?.identifier == identifier {
-            if activePeripheral?.state == .connected {
-                discoverClockServices()
-            } else if let activePeripheral,
-                      activePeripheral.state == .disconnected,
-                      !connectPending {
-                requestConnection(to: activePeripheral)
-            }
-            return
-        }
-
-        guard let peripheral =
-            centralManager.retrievePeripherals(withIdentifiers: [identifier]).first else {
-            connectionText = "Clock authorized; waiting for it to advertise…"
-            centralManager.scanForPeripherals(
-                withServices: [Self.serviceUUID],
-                options: [CBCentralManagerScanOptionAllowDuplicatesKey: false]
+    private func publishClocks() {
+        clocks = runtimes.values.map {
+            ClockViewState(
+                id: $0.identifier,
+                name: $0.displayName,
+                connectionText: $0.connectionText,
+                lastSyncDate: $0.lastSyncDate,
+                lastError: $0.lastError,
+                isConnected: $0.isConnected,
+                automaticSyncEnabled: $0.automaticSyncEnabled
             )
-            scanTimeout?.cancel()
-            let work = DispatchWorkItem { [weak self] in
-                guard let self else { return }
-                self.centralManager?.stopScan()
-                self.connectionText = "Clock not found; power it on and tap Sync Now"
-                self.finishManualSyncIfNeeded(
-                    connectionText: "Clock not found; automatic sync is off"
-                )
+        }
+        .sorted {
+            let nameOrder = $0.name.localizedCaseInsensitiveCompare($1.name)
+            if nameOrder == .orderedSame {
+                return $0.id.uuidString < $1.id.uuidString
             }
-            scanTimeout = work
-            DispatchQueue.main.asyncAfter(deadline: .now() + 20, execute: work)
+            return nameOrder == .orderedAscending
+        }
+        updateSetupText()
+    }
+
+    private func wantsConnection(_ runtime: ClockRuntime) -> Bool {
+        runtime.automaticSyncEnabled || runtime.manualSyncRequested
+    }
+
+    private func connectAuthorizedClocks() {
+        guard accessorySessionActivated,
+              let centralManager,
+              centralManager.state == .poweredOn else {
             return
         }
-        adopt(peripheral)
-        requestConnection(to: peripheral)
+
+        let desired = runtimes.values.filter(wantsConnection)
+        let unresolvedIdentifiers = desired.compactMap {
+            $0.peripheral == nil ? $0.identifier : nil
+        }
+        if !unresolvedIdentifiers.isEmpty {
+            for peripheral in centralManager.retrievePeripherals(
+                withIdentifiers: unresolvedIdentifiers
+            ) {
+                adopt(peripheral)
+            }
+        }
+
+        for runtime in desired {
+            guard let peripheral = runtime.peripheral else {
+                runtime.connectionText =
+                    "Clock authorized; waiting for it to advertise…"
+                continue
+            }
+            switch peripheral.state {
+            case .connected:
+                runtime.isConnected = true
+                discoverClockServices(for: runtime)
+            case .disconnected:
+                requestConnection(for: runtime)
+            case .connecting:
+                runtime.connectPending = true
+                runtime.connectionText = "Connecting…"
+            case .disconnecting:
+                runtime.connectionText = "Disconnecting; waiting to reconnect…"
+            @unknown default:
+                runtime.connectionText = "Waiting for Bluetooth…"
+            }
+        }
+        updateScanState()
+        publishClocks()
     }
 
     private func adopt(_ peripheral: CBPeripheral) {
-        activePeripheral = peripheral
+        guard let runtime = runtimes[peripheral.identifier] else { return }
+        if runtime.peripheral !== peripheral {
+            runtime.timeCharacteristic = nil
+            runtime.statusCharacteristic = nil
+            runtime.sentInitialTimeForConnection = false
+            runtime.awaitingClockAcceptance = false
+        }
+        runtime.peripheral = peripheral
+        applyClockName(peripheral.name, to: runtime)
         peripheral.delegate = self
-        timeCharacteristic = nil
-        statusCharacteristic = nil
-        sentInitialTimeForConnection = false
-        awaitingClockAcceptance = false
     }
 
-    private func requestConnection(to peripheral: CBPeripheral) {
+    private func requestConnection(for runtime: ClockRuntime) {
         guard let centralManager,
-              !connectPending,
+              let peripheral = runtime.peripheral,
+              wantsConnection(runtime),
+              !runtime.connectPending,
               peripheral.state == .disconnected else {
             return
         }
-        reconnectWorkItem?.cancel()
-        reconnectWorkItem = nil
-        scanTimeout?.cancel()
-        scanTimeout = nil
-        connectPending = true
-        connectionText = "Connecting to \(clockName ?? "Kids Clock")…"
+        runtime.reconnectWorkItem?.cancel()
+        runtime.reconnectWorkItem = nil
+        runtime.connectPending = true
+        runtime.connectionText = "Connecting to \(runtime.displayName)…"
         centralManager.connect(
             peripheral,
             options: [
@@ -462,141 +611,223 @@ final class ClockSyncManager: NSObject, ObservableObject {
         )
     }
 
-    private func scheduleReconnect(to peripheral: CBPeripheral) {
-        guard automaticSyncEnabled else { return }
-        reconnectWorkItem?.cancel()
+    private func scheduleReconnect(for runtime: ClockRuntime) {
+        guard runtime.automaticSyncEnabled else { return }
+        runtime.reconnectWorkItem?.cancel()
         let delays: [TimeInterval] = [3, 15, 60]
-        guard reconnectAttempts < delays.count else {
-            connectionText = "Automatic reconnect paused; open the app to retry"
+        guard runtime.reconnectAttempts < delays.count else {
+            runtime.connectionText =
+                "Automatic reconnect paused; open the app to retry"
+            publishClocks()
             return
         }
-        let delay = delays[reconnectAttempts]
-        reconnectAttempts += 1
-        let work = DispatchWorkItem { [weak self, weak peripheral] in
+        let delay = delays[runtime.reconnectAttempts]
+        runtime.reconnectAttempts += 1
+        let identifier = runtime.identifier
+        let work = DispatchWorkItem { [weak self] in
             guard let self,
-                  let peripheral,
-                  self.automaticSyncEnabled,
-                  self.activePeripheral?.identifier == peripheral.identifier else {
+                  let current = self.runtimes[identifier],
+                  current.automaticSyncEnabled else {
                 return
             }
-            self.requestConnection(to: peripheral)
+            self.requestConnection(for: current)
+            self.publishClocks()
         }
-        reconnectWorkItem = work
+        runtime.reconnectWorkItem = work
         DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
     }
 
-    private func discoverClockServices() {
-        guard let peripheral = activePeripheral, peripheral.state == .connected else { return }
-        peripheral.discoverServices([Self.serviceUUID])
+    private func updateScanState() {
+        guard let centralManager, centralManager.state == .poweredOn else { return }
+        let unresolved = runtimes.values.filter {
+            wantsConnection($0) && $0.peripheral == nil
+        }
+        let unresolvedIdentifiers = Set(unresolved.map(\.identifier))
+        guard !unresolved.isEmpty else {
+            centralManager.stopScan()
+            scanTimeout?.cancel()
+            scanTimeout = nil
+            scanTargetIdentifiers = []
+            return
+        }
+        let hasNewTarget =
+            !unresolvedIdentifiers.isSubset(of: scanTargetIdentifiers)
+        scanTargetIdentifiers = unresolvedIdentifiers
+        if !centralManager.isScanning {
+            centralManager.scanForPeripherals(
+                withServices: [Self.serviceUUID],
+                options: [CBCentralManagerScanOptionAllowDuplicatesKey: false]
+            )
+            scheduleScanTimeout()
+        } else if hasNewTarget {
+            scheduleScanTimeout()
+        }
     }
 
-    private func stopConnection() {
-        acknowledgementTimeout?.cancel()
-        acknowledgementTimeout = nil
-        reconnectWorkItem?.cancel()
-        reconnectWorkItem = nil
+    private func scheduleScanTimeout() {
         scanTimeout?.cancel()
-        scanTimeout = nil
-        reconnectAttempts = 0
-        awaitingClockAcceptance = false
-        manualSyncRequested = false
-        connectPending = false
-        centralManager?.stopScan()
-        if let peripheral = activePeripheral {
+        let work = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.centralManager?.stopScan()
+            self.scanTimeout = nil
+            self.scanTargetIdentifiers = []
+            for runtime in self.runtimes.values where
+                self.wantsConnection(runtime) && runtime.peripheral == nil {
+                runtime.connectionText =
+                    "Clock not found; power it on and tap Sync Now"
+                self.finishManualSyncIfNeeded(
+                    for: runtime,
+                    finalText: "Clock not found; automatic sync is off"
+                )
+            }
+            self.publishClocks()
+        }
+        scanTimeout = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 20, execute: work)
+    }
+
+    private func discoverClockServices(for runtime: ClockRuntime) {
+        guard let peripheral = runtime.peripheral,
+              peripheral.state == .connected else {
+            return
+        }
+        peripheral.discoverServices([
+            Self.serviceUUID,
+            Self.gapServiceUUID,
+        ])
+    }
+
+    private func stopConnection(
+        _ runtime: ClockRuntime,
+        finalText: String?
+    ) {
+        runtime.acknowledgementTimeout?.cancel()
+        runtime.acknowledgementTimeout = nil
+        runtime.reconnectWorkItem?.cancel()
+        runtime.reconnectWorkItem = nil
+        runtime.reconnectAttempts = 0
+        runtime.awaitingClockAcceptance = false
+        runtime.manualSyncRequested = false
+        runtime.connectPending = false
+        if let peripheral = runtime.peripheral {
             centralManager?.cancelPeripheralConnection(peripheral)
         }
-        activePeripheral = nil
-        timeCharacteristic = nil
-        statusCharacteristic = nil
-        isConnected = false
-        if hasAuthorizedClock {
-            connectionText = "Automatic sync is off"
+        runtime.peripheral = nil
+        runtime.timeCharacteristic = nil
+        runtime.statusCharacteristic = nil
+        runtime.sentInitialTimeForConnection = false
+        runtime.isConnected = false
+        if let finalText {
+            runtime.connectionText = finalText
         }
     }
 
-    private func sendPhoneTime() {
-        guard !awaitingClockAcceptance,
-              let peripheral = activePeripheral,
+    private func sendPhoneTime(to runtime: ClockRuntime) {
+        guard !runtime.awaitingClockAcceptance,
+              let peripheral = runtime.peripheral,
               peripheral.state == .connected,
-              let timeCharacteristic else {
+              let timeCharacteristic = runtime.timeCharacteristic else {
             return
         }
 
         do {
             let packet = try TimePacketEncoder.encode(date: Date())
-            awaitingClockAcceptance = true
-            connectionText = "Sending iPhone time…"
+            runtime.awaitingClockAcceptance = true
+            runtime.connectionText = "Sending iPhone time…"
             peripheral.writeValue(packet, for: timeCharacteristic, type: .withResponse)
-            scheduleAcknowledgementCheck()
+            scheduleAcknowledgementCheck(for: runtime)
+            publishClocks()
         } catch {
-            lastError = error.localizedDescription
+            runtime.lastError = error.localizedDescription
+            publishClocks()
         }
     }
 
-    private func finishManualSyncIfNeeded(connectionText finalText: String? = nil) {
-        guard manualSyncRequested else { return }
-        manualSyncRequested = false
-        guard !automaticSyncEnabled else { return }
-        stopConnection()
-        if let finalText {
-            connectionText = finalText
-        }
+    private func finishManualSyncIfNeeded(
+        for runtime: ClockRuntime,
+        finalText: String? = nil
+    ) {
+        guard runtime.manualSyncRequested else { return }
+        runtime.manualSyncRequested = false
+        guard !runtime.automaticSyncEnabled else { return }
+        stopConnection(runtime, finalText: finalText ?? "Automatic sync is off")
+        updateScanState()
     }
 
-    private func scheduleAcknowledgementCheck() {
-        acknowledgementTimeout?.cancel()
+    private func scheduleAcknowledgementCheck(for runtime: ClockRuntime) {
+        runtime.acknowledgementTimeout?.cancel()
+        let identifier = runtime.identifier
         let readWork = DispatchWorkItem { [weak self] in
-            guard let self, self.awaitingClockAcceptance else { return }
-            if let peripheral = self.activePeripheral,
-               let status = self.statusCharacteristic {
+            guard let self,
+                  let current = self.runtimes[identifier],
+                  current.awaitingClockAcceptance else {
+                return
+            }
+            if let peripheral = current.peripheral,
+               let status = current.statusCharacteristic {
                 peripheral.readValue(for: status)
             }
             let failWork = DispatchWorkItem { [weak self] in
-                guard let self, self.awaitingClockAcceptance else { return }
-                self.lastError =
+                guard let self,
+                      let current = self.runtimes[identifier],
+                      current.awaitingClockAcceptance else {
+                    return
+                }
+                current.lastError =
                     "The clock did not acknowledge the update. Keep it nearby and tap Sync Now."
-                self.awaitingClockAcceptance = false
-                self.finishManualSyncIfNeeded()
+                current.awaitingClockAcceptance = false
+                self.finishManualSyncIfNeeded(for: current)
+                self.publishClocks()
             }
-            self.acknowledgementTimeout = failWork
+            current.acknowledgementTimeout = failWork
             DispatchQueue.main.asyncAfter(deadline: .now() + 2, execute: failWork)
         }
-        acknowledgementTimeout = readWork
+        runtime.acknowledgementTimeout = readWork
         DispatchQueue.main.asyncAfter(deadline: .now() + 6, execute: readWork)
     }
 
-    private func handleStatus(_ data: Data?) {
-        guard let data, let status = String(data: data, encoding: .utf8) else { return }
+    private func handleStatus(_ data: Data?, for runtime: ClockRuntime) {
+        guard let data, let status = String(data: data, encoding: .utf8) else {
+            return
+        }
         switch status {
         case "sync-request", "time-needed":
-            sendPhoneTime()
+            sendPhoneTime(to: runtime)
         case "time-accepted":
-            acknowledgementTimeout?.cancel()
-            acknowledgementTimeout = nil
-            awaitingClockAcceptance = false
-            lastError = nil
+            runtime.acknowledgementTimeout?.cancel()
+            runtime.acknowledgementTimeout = nil
+            runtime.awaitingClockAcceptance = false
+            runtime.lastError = nil
             let now = Date()
-            lastSyncDate = now
-            defaults.set(now, forKey: Keys.lastSync)
-            connectionText = "Connected and synchronized"
-            finishManualSyncIfNeeded(connectionText: "Synchronized; automatic sync is off")
+            runtime.lastSyncDate = now
+            preferences.setLastSync(now, for: runtime.identifier)
+            runtime.connectionText = "Connected and synchronized"
+            finishManualSyncIfNeeded(
+                for: runtime,
+                finalText: "Synchronized; automatic sync is off"
+            )
         case "time-pending":
-            connectionText = "Clock is applying the time…"
+            runtime.connectionText = "Clock is applying the time…"
         case "rate-limited":
-            acknowledgementTimeout?.cancel()
-            acknowledgementTimeout = nil
-            awaitingClockAcceptance = false
-            connectionText = "Connected; clock recently synchronized"
-            finishManualSyncIfNeeded(connectionText: "Clock recently synchronized; automatic sync is off")
+            runtime.acknowledgementTimeout?.cancel()
+            runtime.acknowledgementTimeout = nil
+            runtime.awaitingClockAcceptance = false
+            runtime.connectionText = "Connected; clock recently synchronized"
+            finishManualSyncIfNeeded(
+                for: runtime,
+                finalText: "Clock recently synchronized; automatic sync is off"
+            )
         case "time-rejected", "invalid-time":
-            acknowledgementTimeout?.cancel()
-            acknowledgementTimeout = nil
-            awaitingClockAcceptance = false
-            lastError = "The clock rejected the phone time. Check the iPhone date and time."
-            finishManualSyncIfNeeded()
+            runtime.acknowledgementTimeout?.cancel()
+            runtime.acknowledgementTimeout = nil
+            runtime.awaitingClockAcceptance = false
+            runtime.lastError =
+                "The clock rejected the phone time. Check the iPhone date and time."
+            finishManualSyncIfNeeded(for: runtime)
         default:
             break
         }
+        publishClocks()
     }
 }
 
@@ -606,56 +837,70 @@ extension ClockSyncManager: @preconcurrency CBCentralManagerDelegate {
         logger.info(
             "Central manager state=\(self.centralStateName(central.state), privacy: .public)"
         )
-        connectionText = onboardingLifecycle.radioStatusText(
+        setupText = onboardingLifecycle.radioStatusText(
             for: radioState(for: central.state)
         )
         switch central.state {
         case .poweredOn:
-            connectAuthorizedClock(allowWhenAutomaticOff: manualSyncRequested)
-        case .poweredOff:
+            connectAuthorizedClocks()
+        case .poweredOff, .unauthorized:
             scanTimeout?.cancel()
             scanTimeout = nil
-            reconnectWorkItem?.cancel()
-            reconnectWorkItem = nil
-            connectPending = false
+            scanTargetIdentifiers = []
             central.stopScan()
-            isConnected = false
-        case .unauthorized:
+            for runtime in runtimes.values {
+                runtime.reconnectWorkItem?.cancel()
+                runtime.reconnectWorkItem = nil
+                runtime.connectPending = false
+                runtime.isConnected = false
+                runtime.connectionText = wantsConnection(runtime)
+                    ? onboardingLifecycle.radioStatusText(
+                        for: radioState(for: central.state)
+                    )
+                    : "Automatic sync is off"
+            }
+        case .unsupported, .resetting, .unknown:
             scanTimeout?.cancel()
             scanTimeout = nil
-            reconnectWorkItem?.cancel()
-            reconnectWorkItem = nil
-            connectPending = false
+            scanTargetIdentifiers = []
             central.stopScan()
-            isConnected = false
-        case .unsupported:
-            connectPending = false
-        case .resetting, .unknown:
-            connectPending = false
+            for runtime in runtimes.values {
+                runtime.connectPending = false
+                runtime.connectionText = wantsConnection(runtime)
+                    ? onboardingLifecycle.radioStatusText(
+                        for: radioState(for: central.state)
+                    )
+                    : "Automatic sync is off"
+            }
         @unknown default:
-            connectPending = false
+            for runtime in runtimes.values {
+                runtime.connectPending = false
+            }
         }
+        publishClocks()
     }
 
     func centralManager(
         _ central: CBCentralManager,
         willRestoreState dict: [String: Any]
     ) {
-        guard centralManager === central else { return }
-        guard let peripherals =
-            dict[CBCentralManagerRestoredStatePeripheralsKey] as? [CBPeripheral],
-              let identifier =
-                onboardingLifecycle.selectedClock?.bluetoothIdentifier,
-              let peripheral = peripherals.first(where: {
-                  $0.identifier == identifier
-              }) else {
+        guard centralManager === central,
+              let peripherals =
+                dict[CBCentralManagerRestoredStatePeripheralsKey] as? [CBPeripheral]
+        else {
             return
         }
-        adopt(peripheral)
-        if peripheral.state == .connected {
-            isConnected = true
-            discoverClockServices()
+        for peripheral in peripherals where runtimes[peripheral.identifier] != nil {
+            adopt(peripheral)
+            guard let runtime = runtimes[peripheral.identifier] else { continue }
+            if peripheral.state == .connected {
+                runtime.isConnected = true
+                discoverClockServices(for: runtime)
+            } else if peripheral.state == .connecting {
+                runtime.connectPending = true
+            }
         }
+        publishClocks()
     }
 
     func centralManager(
@@ -664,35 +909,38 @@ extension ClockSyncManager: @preconcurrency CBCentralManagerDelegate {
         advertisementData: [String: Any],
         rssi RSSI: NSNumber
     ) {
-        guard centralManager === central else { return }
-        guard automaticSyncEnabled || manualSyncRequested,
-              onboardingLifecycle.selectedClock?.bluetoothIdentifier ==
-                  peripheral.identifier else {
+        guard centralManager === central,
+              let runtime = runtimes[peripheral.identifier],
+              wantsConnection(runtime) else {
             return
         }
-        central.stopScan()
-        scanTimeout?.cancel()
-        scanTimeout = nil
         adopt(peripheral)
-        requestConnection(to: peripheral)
+        applyClockName(
+            advertisementData[CBAdvertisementDataLocalNameKey] as? String,
+            to: runtime
+        )
+        requestConnection(for: runtime)
+        updateScanState()
+        publishClocks()
     }
 
     func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) {
         guard centralManager === central,
-              onboardingLifecycle.selectedClock?.bluetoothIdentifier ==
-                  peripheral.identifier else {
+              let runtime = runtimes[peripheral.identifier],
+              wantsConnection(runtime) else {
             central.cancelPeripheralConnection(peripheral)
             return
         }
-        reconnectWorkItem?.cancel()
-        reconnectWorkItem = nil
-        reconnectAttempts = 0
-        connectPending = false
-        isConnected = true
-        lastError = nil
-        connectionText = "Connected; discovering clock service…"
+        runtime.reconnectWorkItem?.cancel()
+        runtime.reconnectWorkItem = nil
+        runtime.reconnectAttempts = 0
+        runtime.connectPending = false
+        runtime.isConnected = true
+        runtime.lastError = nil
+        runtime.connectionText = "Connected; discovering clock service…"
         adopt(peripheral)
-        discoverClockServices()
+        discoverClockServices(for: runtime)
+        publishClocks()
     }
 
     func centralManager(
@@ -700,12 +948,18 @@ extension ClockSyncManager: @preconcurrency CBCentralManagerDelegate {
         didFailToConnect peripheral: CBPeripheral,
         error: Error?
     ) {
-        guard centralManager === central else { return }
-        connectPending = false
-        isConnected = false
-        lastError = error.map { "Connection failed: \($0.localizedDescription)" }
-        finishManualSyncIfNeeded()
-        scheduleReconnect(to: peripheral)
+        guard centralManager === central,
+              let runtime = runtimes[peripheral.identifier] else {
+            return
+        }
+        runtime.connectPending = false
+        runtime.isConnected = false
+        runtime.lastError = error.map {
+            "Connection failed: \($0.localizedDescription)"
+        }
+        finishManualSyncIfNeeded(for: runtime)
+        scheduleReconnect(for: runtime)
+        publishClocks()
     }
 
     func centralManager(
@@ -715,37 +969,67 @@ extension ClockSyncManager: @preconcurrency CBCentralManagerDelegate {
         isReconnecting: Bool,
         error: Error?
     ) {
-        guard centralManager === central else { return }
-        connectPending = isReconnecting
-        isConnected = false
-        timeCharacteristic = nil
-        statusCharacteristic = nil
-        sentInitialTimeForConnection = false
-        awaitingClockAcceptance = false
-        connectionText = isReconnecting ? "Clock out of range; reconnecting…" : "Disconnected"
-        if !automaticSyncEnabled {
-            finishManualSyncIfNeeded()
-        } else if !isReconnecting {
-            scheduleReconnect(to: peripheral)
+        guard centralManager === central,
+              let runtime = runtimes[peripheral.identifier] else {
+            return
         }
+        runtime.connectPending = isReconnecting
+        runtime.isConnected = false
+        runtime.timeCharacteristic = nil
+        runtime.statusCharacteristic = nil
+        runtime.sentInitialTimeForConnection = false
+        runtime.awaitingClockAcceptance = false
+        runtime.connectionText = isReconnecting
+            ? "Clock out of range; reconnecting…"
+            : "Disconnected"
+        if !runtime.automaticSyncEnabled {
+            if runtime.manualSyncRequested {
+                finishManualSyncIfNeeded(for: runtime)
+            } else {
+                runtime.connectionText = "Automatic sync is off"
+            }
+        } else if !isReconnecting {
+            scheduleReconnect(for: runtime)
+        }
+        publishClocks()
     }
 }
 
 extension ClockSyncManager: @preconcurrency CBPeripheralDelegate {
+    func peripheralDidUpdateName(_ peripheral: CBPeripheral) {
+        guard let runtime = runtimes[peripheral.identifier] else { return }
+        applyClockName(peripheral.name, to: runtime)
+        publishClocks()
+    }
+
     func peripheral(_ peripheral: CBPeripheral, didDiscoverServices error: Error?) {
+        guard let runtime = runtimes[peripheral.identifier] else { return }
         if let error {
-            lastError = "Service discovery failed: \(error.localizedDescription)"
+            runtime.lastError =
+                "Service discovery failed: \(error.localizedDescription)"
+            publishClocks()
             return
         }
-        guard let service = peripheral.services?.first(where: {
+        let services = peripheral.services ?? []
+        if let gapService = services.first(where: {
+            $0.uuid == Self.gapServiceUUID
+        }) {
+            peripheral.discoverCharacteristics(
+                [Self.deviceNameUUID],
+                for: gapService
+            )
+        }
+        guard let clockService = services.first(where: {
             $0.uuid == Self.serviceUUID
         }) else {
-            lastError = "This accessory does not expose the Kids Clock service."
+            runtime.lastError =
+                "This accessory does not expose the Kids Clock service."
+            publishClocks()
             return
         }
         peripheral.discoverCharacteristics(
             [Self.timeUUID, Self.statusUUID],
-            for: service
+            for: clockService
         )
     }
 
@@ -754,23 +1038,41 @@ extension ClockSyncManager: @preconcurrency CBPeripheralDelegate {
         didDiscoverCharacteristicsFor service: CBService,
         error: Error?
     ) {
+        guard let runtime = runtimes[peripheral.identifier] else { return }
         if let error {
-            lastError = "Characteristic discovery failed: \(error.localizedDescription)"
+            if service.uuid == Self.gapServiceUUID {
+                return
+            }
+            runtime.lastError =
+                "Characteristic discovery failed: \(error.localizedDescription)"
+            publishClocks()
             return
         }
+        if service.uuid == Self.gapServiceUUID {
+            if let deviceName = service.characteristics?.first(where: {
+                $0.uuid == Self.deviceNameUUID
+            }) {
+                peripheral.readValue(for: deviceName)
+            }
+            return
+        }
+        guard service.uuid == Self.serviceUUID else { return }
         for characteristic in service.characteristics ?? [] {
             switch characteristic.uuid {
             case Self.timeUUID:
-                timeCharacteristic = characteristic
+                runtime.timeCharacteristic = characteristic
             case Self.statusUUID:
-                statusCharacteristic = characteristic
+                runtime.statusCharacteristic = characteristic
                 peripheral.setNotifyValue(true, for: characteristic)
             default:
                 break
             }
         }
-        guard timeCharacteristic != nil, statusCharacteristic != nil else {
-            lastError = "The clock service is incomplete. Update its firmware."
+        guard runtime.timeCharacteristic != nil,
+              runtime.statusCharacteristic != nil else {
+            runtime.lastError =
+                "The clock service is incomplete. Update its firmware."
+            publishClocks()
             return
         }
     }
@@ -780,16 +1082,19 @@ extension ClockSyncManager: @preconcurrency CBPeripheralDelegate {
         didUpdateNotificationStateFor characteristic: CBCharacteristic,
         error: Error?
     ) {
+        guard let runtime = runtimes[peripheral.identifier] else { return }
         if let error {
-            lastError = "Background notifications could not be enabled: \(error.localizedDescription)"
+            runtime.lastError =
+                "Background notifications could not be enabled: \(error.localizedDescription)"
         } else if characteristic.uuid == Self.statusUUID,
                   characteristic.isNotifying {
             peripheral.readValue(for: characteristic)
-            if !sentInitialTimeForConnection {
-                sentInitialTimeForConnection = true
-                sendPhoneTime()
+            if !runtime.sentInitialTimeForConnection {
+                runtime.sentInitialTimeForConnection = true
+                sendPhoneTime(to: runtime)
             }
         }
+        publishClocks()
     }
 
     func peripheral(
@@ -797,12 +1102,25 @@ extension ClockSyncManager: @preconcurrency CBPeripheralDelegate {
         didUpdateValueFor characteristic: CBCharacteristic,
         error: Error?
     ) {
+        guard let runtime = runtimes[peripheral.identifier] else { return }
+        if characteristic.uuid == Self.deviceNameUUID {
+            guard error == nil,
+                  let value = characteristic.value,
+                  let candidate = String(data: value, encoding: .utf8) else {
+                return
+            }
+            applyClockName(candidate, to: runtime)
+            publishClocks()
+            return
+        }
         if let error {
-            lastError = "Clock status could not be read: \(error.localizedDescription)"
+            runtime.lastError =
+                "Clock status could not be read: \(error.localizedDescription)"
+            publishClocks()
             return
         }
         if characteristic.uuid == Self.statusUUID {
-            handleStatus(characteristic.value)
+            handleStatus(characteristic.value, for: runtime)
         }
     }
 
@@ -811,13 +1129,17 @@ extension ClockSyncManager: @preconcurrency CBPeripheralDelegate {
         didWriteValueFor characteristic: CBCharacteristic,
         error: Error?
     ) {
-        guard characteristic.uuid == Self.timeUUID else { return }
+        guard characteristic.uuid == Self.timeUUID,
+              let runtime = runtimes[peripheral.identifier] else {
+            return
+        }
         if let error {
-            acknowledgementTimeout?.cancel()
-            acknowledgementTimeout = nil
-            awaitingClockAcceptance = false
-            lastError = "Time transfer failed: \(error.localizedDescription)"
-            finishManualSyncIfNeeded()
+            runtime.acknowledgementTimeout?.cancel()
+            runtime.acknowledgementTimeout = nil
+            runtime.awaitingClockAcceptance = false
+            runtime.lastError = "Time transfer failed: \(error.localizedDescription)"
+            finishManualSyncIfNeeded(for: runtime)
+            publishClocks()
         }
     }
 }

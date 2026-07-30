@@ -6,24 +6,24 @@ struct AuthorizedClock: Equatable {
 }
 
 enum OnboardingLifecycleAction: Equatable {
-    case initializeBluetoothAndConnect(UUID)
+    case initializeBluetoothAndConnect
     case tearDownBluetooth
 }
 
 struct OnboardingLifecycle {
-    private(set) var selectedClock: AuthorizedClock?
+    private(set) var authorizedClocks: [AuthorizedClock] = []
     private(set) var pickerIsActive = false
     private(set) var bluetoothInitializationRequested = false
 
     mutating func sessionActivated(
-        with authorizedClock: AuthorizedClock?
+        with clocks: [AuthorizedClock]
     ) -> OnboardingLifecycleAction? {
-        selectedClock = authorizedClock
-        guard let authorizedClock else {
+        authorizedClocks = Self.normalized(clocks)
+        guard !authorizedClocks.isEmpty else {
             bluetoothInitializationRequested = false
             return nil
         }
-        return requestBluetoothInitialization(for: authorizedClock.bluetoothIdentifier)
+        return requestBluetoothInitialization()
     }
 
     mutating func pickerWillPresent() {
@@ -35,33 +35,50 @@ struct OnboardingLifecycle {
     }
 
     mutating func accessoryAdded(_ clock: AuthorizedClock) {
-        selectedClock = clock
+        authorizedClocks.removeAll {
+            $0.bluetoothIdentifier == clock.bluetoothIdentifier
+        }
+        authorizedClocks.append(clock)
+        authorizedClocks = Self.normalized(authorizedClocks)
     }
 
-    mutating func pickerDidDismiss() -> OnboardingLifecycleAction? {
-        pickerIsActive = false
-        guard let selectedClock else { return nil }
-        return requestBluetoothInitialization(for: selectedClock.bluetoothIdentifier)
-    }
-
-    mutating func pickerFailed() -> OnboardingLifecycleAction? {
-        pickerIsActive = false
-        selectedClock = nil
+    mutating func replaceAuthorizedClocks(
+        with clocks: [AuthorizedClock]
+    ) -> OnboardingLifecycleAction? {
+        authorizedClocks = Self.normalized(clocks)
+        guard authorizedClocks.isEmpty else {
+            return requestBluetoothInitialization()
+        }
         guard bluetoothInitializationRequested else { return nil }
         bluetoothInitializationRequested = false
         return .tearDownBluetooth
     }
 
-    mutating func accessoryRemoved() -> OnboardingLifecycleAction? {
+    mutating func pickerDidDismiss() -> OnboardingLifecycleAction? {
         pickerIsActive = false
-        selectedClock = nil
+        guard !authorizedClocks.isEmpty else { return nil }
+        return requestBluetoothInitialization()
+    }
+
+    mutating func pickerFailed() -> OnboardingLifecycleAction? {
+        pickerIsActive = false
+        guard authorizedClocks.isEmpty, bluetoothInitializationRequested else {
+            return nil
+        }
+        bluetoothInitializationRequested = false
+        return .tearDownBluetooth
+    }
+
+    mutating func sessionInvalidated() -> OnboardingLifecycleAction? {
+        pickerIsActive = false
+        authorizedClocks = []
         guard bluetoothInitializationRequested else { return nil }
         bluetoothInitializationRequested = false
         return .tearDownBluetooth
     }
 
     func radioStatusText(for state: BluetoothRadioState) -> String {
-        guard selectedClock != nil, bluetoothInitializationRequested else {
+        guard !authorizedClocks.isEmpty, bluetoothInitializationRequested else {
             return pickerIsActive ? "Finding accessories…" : "Ready to add clock"
         }
         switch state {
@@ -70,7 +87,7 @@ struct OnboardingLifecycle {
         case .poweredOff:
             return "Turn on Bluetooth"
         case .unauthorized:
-            return "Bluetooth access for this clock is not authorized"
+            return "Bluetooth access for these clocks is not authorized"
         case .unsupported:
             return "This iPhone does not support Bluetooth LE"
         case .resetting:
@@ -80,12 +97,33 @@ struct OnboardingLifecycle {
         }
     }
 
-    private mutating func requestBluetoothInitialization(
-        for identifier: UUID
-    ) -> OnboardingLifecycleAction? {
-        guard !pickerIsActive, !bluetoothInitializationRequested else { return nil }
+    private mutating func requestBluetoothInitialization()
+        -> OnboardingLifecycleAction? {
+        guard !pickerIsActive, !bluetoothInitializationRequested else {
+            return nil
+        }
         bluetoothInitializationRequested = true
-        return .initializeBluetoothAndConnect(identifier)
+        return .initializeBluetoothAndConnect
+    }
+
+    private static func normalized(
+        _ clocks: [AuthorizedClock]
+    ) -> [AuthorizedClock] {
+        Dictionary(
+            clocks.map { ($0.bluetoothIdentifier, $0) },
+            uniquingKeysWith: { _, newest in newest }
+        )
+        .values
+        .sorted {
+            let nameOrder = $0.displayName.localizedCaseInsensitiveCompare(
+                $1.displayName
+            )
+            if nameOrder == .orderedSame {
+                return $0.bluetoothIdentifier.uuidString
+                    < $1.bluetoothIdentifier.uuidString
+            }
+            return nameOrder == .orderedAscending
+        }
     }
 }
 

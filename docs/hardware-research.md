@@ -253,15 +253,16 @@ pairing alone does not cause Android to write its clock into an accessory.
 
 Android Settings can pair supported accessories, but generic BLE behavior
 varies by vendor/version and newer systems can require an app to connect to the
-GATT service. Therefore the firmware may advertise and bond with multiple
-phones, but a bond must not be interpreted as a time source. "Any number" also
-cannot literally mean infinite stored bonds: flash is finite. The build permits
-up to 16 stored bonds and 16 persisted notification records, allows new pairing
-only during the visible boot window, and evicts the first bond enumerated by
-NimBLE rather than claiming a true LRU policy. Only one BLE connection is
-compiled in because the tiny protocol has one global synchronization
-transaction. The clock remains ownerless; any compatible family phone can take
-a turn sequentially.
+GATT service. The iPhone app can keep separate connections to many clocks, but
+each clock firmware still permits only one connected phone. Therefore the
+firmware may advertise and bond with multiple phones, but a bond must not be
+interpreted as a time source. "Any number" also cannot literally mean infinite
+stored bonds: flash is finite. The build permits up to 16 stored bonds and 16
+persisted notification records, allows new pairing only during the visible
+boot window, and evicts the first bond enumerated by NimBLE rather than claiming
+a true LRU policy. Only one BLE connection is compiled into each clock because
+the tiny protocol has one global synchronization transaction. The clock remains
+ownerless; any compatible family phone can take a turn sequentially.
 
 The current custom service is advertised in a connectable legacy PDU with an
 explicit, non-truncated split: flags, complete 128-bit service UUID, and

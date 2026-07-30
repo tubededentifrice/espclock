@@ -1,10 +1,11 @@
 # Kids Clock iPhone companion
 
-This tiny iOS 18+ app gives the clock regular, timezone-aware synchronization
+This iOS 18+ app gives each added clock regular, timezone-aware synchronization
 without an Internet connection. It uses Apple's AccessorySetupKit for one-tap
-onboarding, then keeps a low-duty Bluetooth LE connection through Core
-Bluetooth. The ESP clock requests a fresh phone time about every six hours; a
-status notification can wake the suspended app so it can answer.
+onboarding. It then keeps one low-duty Bluetooth LE connection to each clock
+that has automatic sync enabled, through one Core Bluetooth central manager.
+Each ESP clock requests a fresh phone time about every six hours. A status
+notification can wake the suspended app so it can answer.
 
 The app has no account, server, advertising, analytics, location permission, or
 third-party dependency. It sends only the iPhone's Unix time and the current UTC
@@ -23,20 +24,22 @@ must be tested on a physical iPhone.
 
 ## Authorization lifecycle
 
-Fresh launch activates only `ASAccessorySession`. The app deliberately does not
-construct `CBCentralManager` until AccessorySetupKit has authorized a clock:
+Fresh launch activates only `ASAccessorySession`. The app does not construct
+`CBCentralManager` until AccessorySetupKit has authorized at least one clock:
 
 1. the picker is presented with no central manager in the process;
 2. `.accessoryAdded` retains the selected accessory but does not connect;
-3. `.pickerDidDismiss` creates one central manager and uses the authorized
-   accessory's `bluetoothIdentifier` to retrieve/connect;
+3. `.pickerDidDismiss` creates one central manager and uses all authorized
+   accessories' `bluetoothIdentifier` values to retrieve and connect them;
 4. `.activated` creates the manager immediately only when the session already
-   contains an authorized clock.
+   contains one or more authorized clocks.
 
-This ordering lets AccessorySetupKit authorize one accessory without asking for
-broad access to nearby Bluetooth devices. The app retains the `bluetooth-central`
-background mode and its stable, per-install restoration identifier. Picker
-cancellation or failure leaves no scan, connection attempt, or central manager.
+This ordering lets AccessorySetupKit authorize the first accessory without
+asking for broad access to nearby Bluetooth devices. The same picker can then
+add more clocks without stopping existing clock connections. The app retains
+the `bluetooth-central` background mode and its stable, per-install restoration
+identifier. On a fresh install, picker cancellation or failure leaves no scan,
+connection attempt, or central manager.
 The information property list intentionally carries both
 `NSAccessorySetupSupports` and `NSAccessorySetupKitSupports`: current
 documentation names the former, while a physical iPhone on iOS 26.5.2
@@ -63,39 +66,54 @@ TestFlight builds also expire.
 
 ## Pair the clock
 
-1. Power-cycle the clock immediately before onboarding.
-2. Open **Kids Clock** and tap **Add Kids Clock** while the clock accepts new
-   phones—during the first two minutes after boot.
+1. Power-cycle the clock that you want to add.
+2. Open **Kids Clock** and tap **Add Kids Clock** or **Add Another Clock** while
+   that clock accepts new phones—during the first two minutes after boot.
 3. Select `KidsClock-xxxx` in Apple's accessory picker and approve Bluetooth
    pairing.
 4. Wait until the app says **Connected and synchronized**.
+5. Repeat these steps for each additional clock.
 
-The no-app portal begins after the two-minute BLE onboarding window if BLE has
-not synchronized, and remains available for two minutes. If the picker finds
-nothing, unplug/replug the clock and try once more nearby.
+Each clock section title uses the complete Bluetooth name, such as
+`KidsClock-06E8`. The app reads this name from the advertisement or the standard
+GAP Device Name value and saves it for later launches.
 
-Before authorization the app says **Ready to add clock**. While Apple's picker
-is open it says **Finding accessories…**. **Turn on Bluetooth** appears only
-after authorization when the post-picker central manager actually reports
+The no-app portal starts 10 seconds after boot if BLE has not synchronized. It
+stays available until the initial two-minute fallback starts. If the picker
+finds nothing, unplug and reconnect the clock, then try once more nearby.
+
+Before the first authorization, the app says **Ready to add clock**. While
+Apple's picker is open, it says **Finding accessories…**. **Turn on Bluetooth**
+appears only after authorization when the central manager reports
 `.poweredOff`; `.unauthorized`, `.unsupported`, `.resetting`, and `.unknown`
 have separate messages.
 
 ## Normal behavior
 
-- Leave **Keep this clock synchronized** enabled on one family iPhone.
+- Leave **Keep synchronized** enabled for each clock that this iPhone owns.
+- The app has no fixed clock-count limit. It keeps separate connection,
+  acknowledgement, retry, and last-sync state for every authorized clock.
 - It is safe to leave the app in the background; do not swipe it away.
-- The app sends time immediately after reconnecting.
-- While connected, the clock asks for another update every six hours.
-- After a clock power cycle, iOS automatically reconnects when the phone is in
-  range and the operating system permits it.
-- **Sync Now** can initiate a connection as well as send an immediate update.
-- The clock's DS3231 keeps time when no phone is nearby, so missed BLE updates
-  do not stop the clock.
+- The app sends time to each clock immediately after that clock reconnects.
+- While connected, each clock asks for another update every six hours.
+- After a clock power cycle, iOS automatically reconnects to that clock when
+  the phone is in range and the operating system permits it.
+- Each clock has its own **Sync Now**, automatic-sync switch, last-sync value,
+  status, and remove action.
+- A removal confirmation opens from the selected clock's **Remove Clock**
+  button and names that clock.
+- Each clock's DS3231 keeps time when no phone is nearby, so missed BLE updates
+  do not stop a clock.
 
-Only one iPhone should keep automatic sync enabled at a time. A persistent phone
-connection intentionally owns the clock's single active synchronization
-transaction. Turn the toggle off on the current phone before enabling another
-authorized family phone.
+One iPhone can keep automatic sync enabled for many clocks at the same time.
+However, only one iPhone should keep automatic sync enabled for a given clock.
+Each ESP clock permits one active synchronization connection. Turn off that
+clock's switch on the current phone before another authorized family phone
+takes ownership of it.
+
+The app does not set an artificial maximum number of clocks. The practical
+number of live Bluetooth connections depends on iOS radio and memory resources,
+the radio environment, and whether all clocks are in range.
 
 ## What iOS cannot guarantee
 
@@ -121,13 +139,14 @@ requires iOS 18+ and does not use a custom in-app scanner for first setup.
 
 ## Remove or recover
 
-**Remove Clock** revokes the iPhone-side AccessorySetupKit authorization. The
-ESP may still retain its BLE bond. If adding it again fails, keep the clock
-powered and hold its recessed **BOOT** button for five seconds until `RESET`
-appears on OLED or `rSt` on TM1637, then release it. The full-size ESP32 uses
-its GPIO0 button and the C3 uses GPIO9. The clock clears bonds and restarts;
-then add it again within two minutes. This also resets the confirmed
-timezone/anti-large-correction marker, so use it only for recovery.
+Each **Remove Clock** action revokes only that clock's iPhone-side
+AccessorySetupKit authorization. Other clocks stay connected. The removed ESP
+may still retain its BLE bond. If adding it again fails, keep the clock powered
+and hold its recessed **BOOT** button for five seconds until `RESET` appears on
+OLED or `rSt` on TM1637, then release it. The full-size ESP32 uses its GPIO0
+button and the C3 uses GPIO9. The clock clears bonds and restarts; then add it
+again within two minutes. This also resets the confirmed timezone and
+anti-large-correction marker, so use it only for recovery.
 
 ## Protocol and implementation
 
@@ -142,8 +161,10 @@ little-endian packet with response:
 | 11 | reserved flags, currently zero |
 
 It accepts `time-accepted` as the application-level acknowledgement and performs
-a status read if that notification is delayed. A failed connection retries
-after a bounded delay; the OS owns long-range pending reconnect behavior.
+a status read if that notification is delayed. Each clock has an independent
+acknowledgement deadline and bounded retry sequence. One central manager owns
+all clock peripherals and restores all connected or pending peripherals after
+an eligible iOS relaunch. The OS owns long-range pending reconnect behavior.
 Firmware status values are exact UTF-8 bytes without a trailing NUL. The time
 characteristic advertises the base GATT write capability and separately
 requires an encrypted link; both properties are necessary for Core Bluetooth
@@ -182,7 +203,11 @@ Creating post-authorization central manager
 Central manager state=poweredOn
 ```
 
-The pre-fix symptom to compare against is: system Bluetooth on, the app absent
+When you add a later clock, the existing central manager and clock connections
+remain active while the picker is open. The fresh-install sequence above still
+has `centralManagerExists=false`.
+
+The earlier failure symptom to compare against is: system Bluetooth on, the app absent
 from broad Bluetooth privacy settings, an empty picker, and a manager created
 before authorization reporting `.poweredOff`. That baseline still requires an
 actual fresh-install capture; the generic-device build cannot reproduce a
@@ -259,14 +284,16 @@ xcodebuild \
 ```
 
 The XCTest cases validate the firmware packet's byte order and input bounds,
-plus fresh-install lifecycle ordering, cancellation, authorized relaunch,
-radio-state messaging, and remove/re-add cleanup.
+plus fresh-install lifecycle ordering, cancellation, multi-clock authorized
+relaunch, later-clock addition, picker failure isolation, radio-state
+messaging, and per-clock removal cleanup.
 Run them on a compatible iOS Simulator or selected physical device from Xcode.
 
-The normal icon-inclusive app build, test-bundle build, and all 13 Simulator
-tests (four packet and nine onboarding lifecycle cases) pass with the documented
-toolchain. If a Mac reports a CoreSimulator framework mismatch or `iOS ... is
-not installed`, run Xcode once, finish **Xcode → Settings → Components**, or use
+The normal icon-inclusive app build, test-bundle build, and all 20 Simulator
+tests (four packet, three per-clock preference, one identity-presentation, and
+12 onboarding lifecycle cases) pass with the documented toolchain. If a Mac
+reports a CoreSimulator framework mismatch or `iOS ... is not installed`, run
+Xcode once, finish **Xcode → Settings → Components**, or use
 `xcodebuild -runFirstLaunch` followed by `xcodebuild -downloadPlatform iOS`.
 The platform download can be several gigabytes.
 
@@ -289,13 +316,19 @@ For each applicable physical iPhone:
 - test picker cancel/retry and picker failure recovery;
 - remove and re-add the clock, including ESP bond recovery;
 - test ESP reboot reconnect, walk out of range/back in range, and **Sync Now**;
+- add at least three clocks, keep all three connected, and prove that each
+  clock receives and acknowledges its own update;
+- power-cycle and move each of the three clocks out of range separately; prove
+  that one clock's retry and acknowledgement state does not change the others;
+- disable automatic sync and remove one clock; prove that the other clocks
+  remain connected and continue to synchronize;
 - after the two-minute window, confirm the 800–1000 ms low-duty advertisement
   still restores a bonded background connection at five metres;
 - test locked/background reconnection and a six-hour `sync-request`;
 - test Core Bluetooth restoration after system termination, separately from an
   intentional force-quit;
-- test handoff between two authorized family iPhones using the automatic-sync
-  toggle;
+- test handoff of one clock between two authorized family iPhones by using that
+  clock's automatic-sync switch;
 - fill all 16 bond/notification slots, cancel one at-capacity pairing, and
   verify recovery;
 - verify no location, Internet service, account, analytics, third-party SDK, or
