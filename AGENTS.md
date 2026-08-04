@@ -70,6 +70,11 @@ of silently working around it.
 - Use `uv` for every Python environment, dependency, and Python command. Do not use bare `pip`, `python -m venv`, Poetry, or Conda.
 - Put the uv cache in a writable temporary directory when required: `UV_CACHE_DIR=/private/tmp/espclock-uv-cache`.
 - PlatformIO is pinned in `pyproject.toml`/`uv.lock`.
+- An unqualified request to flash firmware means the 128x64 OLED profile for
+  the detected board: `esp32-c3-oled-128x64` for a C3 or
+  `esp32-devkit-oled-128x64` for a classic ESP32. Use another display profile
+  only when the user specifies it. If the board family or display profile is
+  uncertain, ask before flashing.
 - Build the default full-size ESP32/OLED bench firmware with
   `uv run pio run`.
 - Build the travel target with
