@@ -18,7 +18,7 @@ ESP32 using a known-good data cable, then run:
 
 ```sh
 uv sync
-uv run tools/diagnose_esp.py
+uv run --locked tools/diagnose_esp.py
 ```
 
 The tool finds a single connected board, infers C3 versus classic from its USB
@@ -38,7 +38,8 @@ declaring the board defective or asking the user to press BOOT.
    cannot open the device. Run the wrapper with approved direct device access
    from the first invocation.
 2. **Classify an open failure as a host problem first.** If PlatformIO says
-   `Could not open ... the port doesn't exist` but `uv run pio device list`
+   `Could not open ... the port doesn't exist` but
+   `uv run --locked python tools/pio.py device list`
    still shows that port, stop the restricted run and restart it with direct
    serial access. Also exclude another serial monitor owning the port. This is
    not a BOOT-mode or radio failure.
@@ -78,7 +79,7 @@ If more than one serial device is attached or inference is ambiguous, specify
 both:
 
 ```sh
-uv run tools/diagnose_esp.py \
+uv run --locked tools/diagnose_esp.py \
   --board c3 \
   --port /dev/cu.usbmodem1101
 ```
@@ -137,7 +138,7 @@ keeps trying stale bond material, then rerun the test.
 Run only the automated portion for build benches or CI-like checks:
 
 ```sh
-uv run tools/diagnose_esp.py --non-interactive
+uv run --locked tools/diagnose_esp.py --non-interactive
 ```
 
 That result is necessarily `INCOMPLETE`, because internal logs do not prove RF
@@ -147,7 +148,7 @@ diagnostic-firmware development and cannot qualify an incoming board.
 Restore a known product profile after the result is saved:
 
 ```sh
-uv run tools/diagnose_esp.py \
+uv run --locked tools/diagnose_esp.py \
   --restore-env esp32-c3-oled-128x64
 ```
 

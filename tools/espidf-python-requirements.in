@@ -1,0 +1,9 @@
+# These are the Python requirements in the pinned PlatformIO ESP-IDF builder.
+urllib3<2
+cryptography>=2.1.4,<35.0.0
+future>=0.18.3
+pyparsing>=2.0.3,<2.4.0
+kconfiglib~=13.7.1
+idf-component-manager~=1.0
+esp-idf-kconfig>=1.4.2,<2.0.0
+chardet>=3.0.2,<4; platform_system == "Darwin" and platform_machine == "arm64"

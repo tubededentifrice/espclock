@@ -217,20 +217,40 @@ Host requirements:
 - for classic DevKit clones, the CP210x or CH340 USB-UART driver if macOS does
   not already recognize it; the C3 uses its native USB serial/JTAG interface.
 
-All Python tooling is pinned in `pyproject.toml` and `uv.lock`; do not install PlatformIO globally.
+The repository accepts a dependency only after it is seven weeks old. Python,
+PlatformIO, firmware-library, framework, and build-tool dependencies use exact
+versions, hashes, or full Git commits. The ESP32-C3 ESP-IDF build also uses the
+hash-locked `tools/espidf-python-requirements.txt` file for the Python tools
+that PlatformIO normally installs in a separate environment. Do not install
+PlatformIO globally.
+
+Run the fail-closed policy check before an install or dependency update. It
+verifies the lock hashes and dates against PyPI. It reads PlatformIO and Git
+commit dates from their services. It rejects a missing hash, a version range,
+a Git tag, or a short Git commit.
 
 ```sh
-uv sync
-uv run pio test -e native
-uv run pio run -e esp32-devkit-oled-128x64
-uv run pio run -e esp32-devkit-oled-128x64 --target upload
+python3 tools/check_dependency_age.py
+uv sync --locked
+uv run --locked python tools/pio.py test -e native
+uv run --locked python tools/pio.py run -e esp32-devkit-oled-128x64
+uv run --locked python tools/pio.py run -e esp32-devkit-oled-128x64 --target upload
 ```
+
+Use `tools/pio.py` for each PlatformIO command. The wrapper runs the policy
+check first. For an ESP-IDF environment, it also creates the PlatformIO Python
+environment from the hash-locked requirements file.
+
+The same check runs in GitHub Actions. Protect `main` and require the
+`Dependency age / check` result so that a change cannot bypass the check. An
+urgent security fix that is less than seven weeks old needs an explicit policy
+change and review. Do not silently remove the cooldown.
 
 PlatformIO normally detects the serial port. If several boards are connected:
 
 ```sh
-uv run pio device list
-uv run pio run -e esp32-devkit-oled-128x64 --target upload \
+uv run --locked python tools/pio.py device list
+uv run --locked python tools/pio.py run -e esp32-devkit-oled-128x64 --target upload \
   --upload-port /dev/cu.SLAB_USBtoUART
 ```
 
@@ -241,7 +261,7 @@ Other common classic-board port names are `/dev/cu.usbserial-*` and
 Open the serial monitor:
 
 ```sh
-uv run pio device monitor --baud 115200
+uv run --locked python tools/pio.py device monitor --baud 115200
 ```
 
 Normal firmware profiles are optimized release builds and compile application
@@ -259,7 +279,7 @@ Before connecting modules or soldering a board, run the destructive
 [incoming-board radio diagnostic](docs/radio-diagnostics.md):
 
 ```sh
-uv run tools/diagnose_esp.py
+uv run --locked tools/diagnose_esp.py
 ```
 
 It erases the board without a confirmation prompt, installs a dedicated
@@ -616,10 +636,11 @@ Do not close or pot the case until every applicable physical item passes.
 
 ### Automated
 
-- [x] `uv run pio test -e native` passes (43/43).
-- [x] `uv run python -m unittest discover -s tools/tests` passes the nine
+- [x] `uv run --locked python tools/pio.py test -e native` passes (43/43).
+- [x] `uv run --locked python -m unittest discover -s tools/tests` passes the nine
   diagnostic-runner parser and classification tests.
-- [x] `uv run pio run -e esp32-devkit-oled-128x64` completes.
+- [x] `uv run --locked python tools/pio.py run -e
+  esp32-devkit-oled-128x64` completes.
 - [x] All six display/board profiles compile in the final verification matrix.
 - [x] Both classic ESP32 and C3 radio-diagnostic profiles compile.
 - [x] No firmware compiler warnings are reported.

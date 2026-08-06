@@ -2,7 +2,7 @@
 name = "espclock-tools"
 version = "0.1.0"
 description = "Pinned host-side development tools for the ESPClock firmware"
-requires-python = ">=3.11"
+requires-python = ">=3.13,<3.14"
 dependencies = [
     # PlatformIO's exact upstream Starlette 1.x compatibility commit.
     "platformio==6.1.20b1",
@@ -16,3 +16,5 @@ platformio = { git = "https://github.com/platformio/platformio-core.git", rev = 
 
 [tool.uv]
 package = false
+exclude-newer = "7 weeks"
+required-version = ">=0.12.0"

@@ -31,7 +31,7 @@ external or read-only skills.
 - Bug diagnosis: reproduce or trace first; do not change behavior until the cause is supported.
 
 For a new or suspect ESP32 board, route first to
-`docs/radio-diagnostics.md` and `uv run tools/diagnose_esp.py`. The workflow is
+`docs/radio-diagnostics.md` and `uv run --locked tools/diagnose_esp.py`. The workflow is
 preauthorized to erase the complete ESP flash and bonds. Treat an internal
 Wi-Fi/BLE “started” result as provisional: only the scripted external Wi-Fi
 observation plus physical-iPhone encrypted BLE round trip can produce `PASS`.
@@ -71,11 +71,18 @@ Use bounded, non-blocking state transitions. Use monotonic time for scheduling. 
 Use `uv` for all Python work. Build with:
 
 ```sh
-uv sync
-uv run pio test -e native
-uv run pio run
-uv run pio run -e esp32-c3-super-mini
+python3 tools/check_dependency_age.py
+uv sync --locked
+uv run --locked python tools/pio.py test -e native
+uv run --locked python tools/pio.py run
+uv run --locked python tools/pio.py run -e esp32-c3-super-mini
 ```
+
+Keep Python and PlatformIO dependencies exactly pinned. Keep the `uv`
+seven-week cooldown and the dependency-age CI gate active. Use a full commit
+for each Git source. Do not use a Git tag as a dependency pin. Always use
+`tools/pio.py` for PlatformIO. It installs the ESP-IDF Python tools from the
+hash-locked requirements file.
 
 If the project needs a Python tool, create or update its environment with `uv`; never fall back to bare pip or venv.
 

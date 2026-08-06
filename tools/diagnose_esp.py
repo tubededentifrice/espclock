@@ -415,7 +415,19 @@ def main(argv: list[str] | None = None) -> int:
         if args.iphone == "ask":
             args.iphone = "skip"
     if shutil.which("pio") is None:
-        print("error: run this through `uv run tools/diagnose_esp.py`", file=sys.stderr)
+        print(
+            "error: run this through `uv run --locked tools/diagnose_esp.py`",
+            file=sys.stderr,
+        )
+        return 2
+
+    policy_check = subprocess.run(
+        [sys.executable, str(ROOT / "tools" / "check_dependency_age.py")],
+        cwd=ROOT,
+        check=False,
+    )
+    if policy_check.returncode != 0:
+        print("error: the dependency policy check failed", file=sys.stderr)
         return 2
 
     try:

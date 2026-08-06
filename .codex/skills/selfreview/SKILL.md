@@ -146,8 +146,8 @@ proportionate to the change.
 For firmware, tests, dependencies, or PlatformIO configuration, require:
 
 ```sh
-UV_CACHE_DIR=/private/tmp/espclock-uv-cache uv run pio test -e native
-UV_CACHE_DIR=/private/tmp/espclock-uv-cache uv run pio run
+UV_CACHE_DIR=/private/tmp/espclock-uv-cache uv run --locked python tools/pio.py test -e native
+UV_CACHE_DIR=/private/tmp/espclock-uv-cache uv run --locked python tools/pio.py run
 ```
 
 Review compiler warnings, native-test results, flash/RAM usage, and pin

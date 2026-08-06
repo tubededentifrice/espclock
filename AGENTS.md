@@ -67,7 +67,10 @@ of silently working around it.
 
 ## Tooling
 
-- Use `uv` for every Python environment, dependency, and Python command. Do not use bare `pip`, `python -m venv`, Poetry, or Conda.
+- Use `uv` for every Python environment, dependency, and project command. Do
+  not use bare `pip`, `python -m venv`, Poetry, or Conda. The standard-library
+  `python3 tools/check_dependency_age.py` preflight is the only exception. It
+  must run before `uv` can install repository dependencies.
 - Put the uv cache in a writable temporary directory when required: `UV_CACHE_DIR=/private/tmp/espclock-uv-cache`.
 - PlatformIO is pinned in `pyproject.toml`/`uv.lock`.
 - An unqualified request to flash firmware means the 128x64 OLED profile for
@@ -75,12 +78,17 @@ of silently working around it.
   `esp32-devkit-oled-128x64` for a classic ESP32. Use another display profile
   only when the user specifies it. If the board family or display profile is
   uncertain, ask before flashing.
+- Run PlatformIO only through `uv run --locked python tools/pio.py`. The
+  wrapper enforces the dependency-age check and the hash-locked ESP-IDF Python
+  environment.
 - Build the default full-size ESP32/OLED bench firmware with
-  `uv run pio run`.
+  `uv run --locked python tools/pio.py run`.
 - Build the travel target with
-  `uv run pio run -e esp32-c3-super-mini`.
-- Run native tests with `uv run pio test -e native`.
-- Qualify a bare incoming ESP32 with `uv run tools/diagnose_esp.py`. This
+  `uv run --locked python tools/pio.py run -e esp32-c3-super-mini`.
+- Run native tests with
+  `uv run --locked python tools/pio.py test -e native`.
+- Qualify a bare incoming ESP32 with
+  `uv run --locked tools/diagnose_esp.py`. This
   workflow has standing authorization to erase the complete ESP flash and bonds
   without confirmation; follow `docs/radio-diagnostics.md` and require its
   external Wi-Fi and physical-iPhone BLE proofs before reporting `PASS`. A
