@@ -16,5 +16,5 @@ platformio = { git = "https://github.com/platformio/platformio-core.git", rev = 
 
 [tool.uv]
 package = false
-exclude-newer = "7 weeks"
+exclude-newer = "2 weeks"
 required-version = ">=0.12.0"

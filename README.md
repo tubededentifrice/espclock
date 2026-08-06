@@ -217,7 +217,7 @@ Host requirements:
 - for classic DevKit clones, the CP210x or CH340 USB-UART driver if macOS does
   not already recognize it; the C3 uses its native USB serial/JTAG interface.
 
-The repository accepts a dependency only after it is seven weeks old. Python,
+The repository accepts a dependency only after it is two weeks old. Python,
 PlatformIO, firmware-library, framework, and build-tool dependencies use exact
 versions, hashes, or full Git commits. The ESP32-C3 ESP-IDF build also uses the
 hash-locked `tools/espidf-python-requirements.txt` file for the Python tools
@@ -243,7 +243,7 @@ environment from the hash-locked requirements file.
 
 The same check runs in GitHub Actions. Protect `main` and require the
 `Dependency age / check` result so that a change cannot bypass the check. An
-urgent security fix that is less than seven weeks old needs an explicit policy
+urgent security fix that is less than two weeks old needs an explicit policy
 change and review. Do not silently remove the cooldown.
 
 PlatformIO normally detects the serial port. If several boards are connected:

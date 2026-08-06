@@ -79,7 +79,7 @@ uv run --locked python tools/pio.py run -e esp32-c3-super-mini
 ```
 
 Keep Python and PlatformIO dependencies exactly pinned. Keep the `uv`
-seven-week cooldown and the dependency-age CI gate active. Use a full commit
+two-week cooldown and the dependency-age CI gate active. Use a full commit
 for each Git source. Do not use a Git tag as a dependency pin. Always use
 `tools/pio.py` for PlatformIO. It installs the ESP-IDF Python tools from the
 hash-locked requirements file.

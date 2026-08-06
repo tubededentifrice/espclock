@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fail when a repository dependency is mutable or less than seven weeks old."""
+"""Fail when a repository dependency is mutable or less than two weeks old."""
 
 from __future__ import annotations
 
@@ -16,8 +16,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 
-MINIMUM_AGE = timedelta(weeks=7)
-UV_COOLDOWN = "7 weeks"
+MINIMUM_AGE = timedelta(weeks=2)
+UV_COOLDOWN = "2 weeks"
 UV_MINIMUM_VERSION = ">=0.12.0"
 GIT_COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
 EXACT_PYTHON_DEPENDENCY_RE = re.compile(
@@ -131,8 +131,8 @@ def check_uv_lock(
     root: Path, cutoff: datetime, expected_packages: dict[str, tuple[str, str]]
 ) -> set[tuple[str, str, str]]:
     lock = load_toml(root / "uv.lock")
-    if lock.get("options", {}).get("exclude-newer-span") != "P7W":
-        raise PolicyError("uv.lock does not contain the seven-week exclude-newer span")
+    if lock.get("options", {}).get("exclude-newer-span") != "P2W":
+        raise PolicyError("uv.lock does not contain the two-week exclude-newer span")
 
     git_references: set[tuple[str, str, str]] = set()
     locked_packages: dict[str, dict] = {}
@@ -397,7 +397,7 @@ def main() -> int:
 
     print(
         "Dependency age check passed: "
-        f"seven-week cutoff {cutoff.isoformat()}, "
+        f"two-week cutoff {cutoff.isoformat()}, "
         f"{len(git_references)} Git pin(s), "
         f"{len(platformio_references)} PlatformIO pin(s), "
         f"{hashed_requirement_count} hashed ESP-IDF Python pin(s)."
