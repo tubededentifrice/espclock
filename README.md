@@ -230,14 +230,14 @@ commit dates from their services. It rejects a missing hash, a version range,
 a Git tag, or a short Git commit.
 
 ```sh
-python3 tools/check_dependency_age.py
 uv sync --locked
-uv run --locked python tools/pio.py test -e native
-uv run --locked python tools/pio.py run -e esp32-devkit-oled-128x64
-uv run --locked python tools/pio.py run -e esp32-devkit-oled-128x64 --target upload
+uv run --locked opendle-deps check
+uv run --locked opendle-pio test -e native
+uv run --locked opendle-pio run -e esp32-devkit-oled-128x64
+uv run --locked opendle-pio run -e esp32-devkit-oled-128x64 --target upload
 ```
 
-Use `tools/pio.py` for each PlatformIO command. The wrapper runs the policy
+Use `opendle-pio` for each PlatformIO command. The wrapper runs the policy
 check first. For an ESP-IDF environment, it also creates the PlatformIO Python
 environment from the hash-locked requirements file.
 
@@ -249,8 +249,8 @@ change and review. Do not silently remove the cooldown.
 PlatformIO normally detects the serial port. If several boards are connected:
 
 ```sh
-uv run --locked python tools/pio.py device list
-uv run --locked python tools/pio.py run -e esp32-devkit-oled-128x64 --target upload \
+uv run --locked opendle-pio device list
+uv run --locked opendle-pio run -e esp32-devkit-oled-128x64 --target upload \
   --upload-port /dev/cu.SLAB_USBtoUART
 ```
 
@@ -261,7 +261,7 @@ Other common classic-board port names are `/dev/cu.usbserial-*` and
 Open the serial monitor:
 
 ```sh
-uv run --locked python tools/pio.py device monitor --baud 115200
+uv run --locked opendle-pio device monitor --baud 115200
 ```
 
 Normal firmware profiles are optimized release builds and compile application
@@ -636,10 +636,10 @@ Do not close or pot the case until every applicable physical item passes.
 
 ### Automated
 
-- [x] `uv run --locked python tools/pio.py test -e native` passes (43/43).
+- [x] `uv run --locked opendle-pio test -e native` passes (43/43).
 - [x] `uv run --locked python -m unittest discover -s tools/tests` passes the nine
   diagnostic-runner parser and classification tests.
-- [x] `uv run --locked python tools/pio.py run -e
+- [x] `uv run --locked opendle-pio run -e
   esp32-devkit-oled-128x64` completes.
 - [x] All six display/board profiles compile in the final verification matrix.
 - [x] Both classic ESP32 and C3 radio-diagnostic profiles compile.

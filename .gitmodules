@@ -1,0 +1,3 @@
+[submodule "shared/opendle-esp32"]
+	path = shared/opendle-esp32
+	url = https://github.com/opendle/opendle-esp32.git

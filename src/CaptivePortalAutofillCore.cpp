@@ -1,5 +1,7 @@
 #include "CaptivePortalAutofillCore.h"
 
+#include <opendle/time.hpp>
+
 #include <ctype.h>
 #include <stdio.h>
 #include <string.h>
@@ -639,7 +641,7 @@ bool consumeRedirect(uint8_t& totalRedirects) {
 
 bool automationWindowExpired(const uint32_t now, const uint32_t started,
                              const uint32_t timeoutMs) {
-  return now - started >= timeoutMs;
+  return opendle::elapsed(now, started, timeoutMs);
 }
 
 bool completionMatchesGeneration(const uint32_t currentGeneration,

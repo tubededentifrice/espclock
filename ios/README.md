@@ -180,7 +180,7 @@ hold BOOT while applying power.
 1. In Xcode, run the rebuilt app on the unlocked iPhone and show the debug
    console.
 2. Start the firmware serial monitor with
-   `uv run --locked python tools/pio.py device monitor --baud 115200`.
+   `uv run --locked opendle-pio device monitor --baud 115200`.
 3. Power-cycle the ESP and confirm its serial log says `[BLE] advertising
    start=ok`; `PAIR` alone is not proof of a successful radio start.
 4. Confirm the app initially says **Ready to add clock**. Bluetooth should be

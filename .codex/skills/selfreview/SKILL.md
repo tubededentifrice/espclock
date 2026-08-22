@@ -146,8 +146,10 @@ proportionate to the change.
 For firmware, tests, dependencies, or PlatformIO configuration, require:
 
 ```sh
-UV_CACHE_DIR=/private/tmp/espclock-uv-cache uv run --locked python tools/pio.py test -e native
-UV_CACHE_DIR=/private/tmp/espclock-uv-cache uv run --locked python tools/pio.py run
+UV_CACHE_DIR=/private/tmp/espclock-uv-cache uv run --locked opendle-deps check
+UV_CACHE_DIR=/private/tmp/espclock-uv-cache uv run --locked opendle-pio test -e native
+UV_CACHE_DIR=/private/tmp/espclock-uv-cache uv run --locked opendle-pio run
+UV_CACHE_DIR=/private/tmp/espclock-uv-cache uv run --locked opendle-secrets check
 ```
 
 Review compiler warnings, native-test results, flash/RAM usage, and pin

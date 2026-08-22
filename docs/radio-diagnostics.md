@@ -39,7 +39,7 @@ declaring the board defective or asking the user to press BOOT.
    from the first invocation.
 2. **Classify an open failure as a host problem first.** If PlatformIO says
    `Could not open ... the port doesn't exist` but
-   `uv run --locked python tools/pio.py device list`
+   `uv run --locked opendle-pio device list`
    still shows that port, stop the restricted run and restart it with direct
    serial access. Also exclude another serial monitor owning the port. This is
    not a BOOT-mode or radio failure.

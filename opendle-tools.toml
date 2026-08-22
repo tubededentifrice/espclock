@@ -1,0 +1,12 @@
+[platformio]
+project_dir = "."
+
+[platformio.espidf]
+version = "4.4.7"
+requirements = "tools/espidf-python-requirements.txt"
+environments = [
+  "esp32-c3-super-mini",
+  "esp32-c3-oled-128x64",
+  "esp32-c3-super-mini-plus-oled-128x64",
+  "esp32-c3-oled-128x32",
+]

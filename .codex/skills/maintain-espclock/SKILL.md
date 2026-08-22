@@ -71,17 +71,19 @@ Use bounded, non-blocking state transitions. Use monotonic time for scheduling. 
 Use `uv` for all Python work. Build with:
 
 ```sh
-python3 tools/check_dependency_age.py
 uv sync --locked
-uv run --locked python tools/pio.py test -e native
-uv run --locked python tools/pio.py run
-uv run --locked python tools/pio.py run -e esp32-c3-super-mini
+uv run --locked opendle-deps check
+uv run --locked opendle-pio test -e native
+uv run --locked opendle-pio run
+uv run --locked opendle-pio run -e esp32-c3-super-mini
+uv run --locked opendle-secrets check
 ```
 
-Keep Python and PlatformIO dependencies exactly pinned. Keep the `uv`
+Keep Python and PlatformIO dependencies exactly pinned. Common policy and
+secret checks come from the pinned `opendle-electronics` package. Keep the `uv`
 two-week cooldown and the dependency-age CI gate active. Use a full commit
 for each Git source. Do not use a Git tag as a dependency pin. Always use
-`tools/pio.py` for PlatformIO. It installs the ESP-IDF Python tools from the
+`opendle-pio` for PlatformIO. It installs the ESP-IDF Python tools from the
 hash-locked requirements file.
 
 If the project needs a Python tool, create or update its environment with `uv`; never fall back to bare pip or venv.

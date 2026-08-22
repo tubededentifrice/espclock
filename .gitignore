@@ -1,6 +1,7 @@
 # PlatformIO
 .pio/
 .platformio/
+.opendle/
 .pioenvs/
 .piolibdeps/
 .cache/
@@ -39,6 +40,9 @@ xcuserdata/
 !.env.example
 include/secrets.h
 src/secrets.h
+*.pem
+*.key
+diagnostics/private/
 
 # Python tooling used by development scripts
 .venv/

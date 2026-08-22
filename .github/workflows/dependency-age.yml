@@ -12,11 +12,22 @@ permissions:
 
 jobs:
   check:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Check out the repository
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          submodules: recursive
+      - name: Install uv
+        uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e
+        with:
+          enable-cache: false
+          version: "0.12.4"
+      - name: Install locked tools
+        run: uv sync --locked
       - name: Check dependency pins and age
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: python3 tools/check_dependency_age.py
+        run: uv run --locked opendle-deps check
+      - name: Scan commit candidates
+        run: uv run --locked opendle-secrets check

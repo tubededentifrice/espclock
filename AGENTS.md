@@ -68,9 +68,13 @@ of silently working around it.
 ## Tooling
 
 - Use `uv` for every Python environment, dependency, and project command. Do
-  not use bare `pip`, `python -m venv`, Poetry, or Conda. The standard-library
-  `python3 tools/check_dependency_age.py` preflight is the only exception. It
-  must run before `uv` can install repository dependencies.
+  not use bare `pip`, `python -m venv`, Poetry, or Conda. Run `uv sync
+  --locked`, then run `uv run --locked opendle-deps check` before a dependency
+  update or firmware build.
+- The pinned embedded library is in `shared/opendle-esp32`. Common host tools
+  come from the locked `opendle-electronics` package. The dependency cooldown
+  does not apply to these reviewed first-party repositories, but full commit
+  pins are mandatory. Keep ESPClock product and hardware policy here.
 - Put the uv cache in a writable temporary directory when required: `UV_CACHE_DIR=/private/tmp/espclock-uv-cache`.
 - PlatformIO is pinned in `pyproject.toml`/`uv.lock`.
 - An unqualified request to flash firmware means the 128x64 OLED profile for
@@ -78,15 +82,20 @@ of silently working around it.
   `esp32-devkit-oled-128x64` for a classic ESP32. Use another display profile
   only when the user specifies it. If the board family or display profile is
   uncertain, ask before flashing.
-- Run PlatformIO only through `uv run --locked python tools/pio.py`. The
+- If the user identifies a C3 Super Mini Plus with a GPIO8 WS2812 RGB LED and
+  a 128x64 OLED, use `esp32-c3-super-mini-plus-oled-128x64`. USB chip detection
+  cannot distinguish the Plus board from a standard C3 board. Do not use this
+  profile on a standard C3 Super Mini because its GPIO8 LED has different
+  wiring.
+- Run PlatformIO only through `uv run --locked opendle-pio`. The
   wrapper enforces the dependency-age check and the hash-locked ESP-IDF Python
   environment.
 - Build the default full-size ESP32/OLED bench firmware with
-  `uv run --locked python tools/pio.py run`.
+  `uv run --locked opendle-pio run`.
 - Build the travel target with
-  `uv run --locked python tools/pio.py run -e esp32-c3-super-mini`.
+  `uv run --locked opendle-pio run -e esp32-c3-super-mini`.
 - Run native tests with
-  `uv run --locked python tools/pio.py test -e native`.
+  `uv run --locked opendle-pio test -e native`.
 - Qualify a bare incoming ESP32 with
   `uv run --locked tools/diagnose_esp.py`. This
   workflow has standing authorization to erase the complete ESP flash and bonds
@@ -108,6 +117,9 @@ of silently working around it.
 6. For iOS changes, compile the generic-device app and test bundle and identify any physical-device-only gates.
 7. Review warnings, memory usage, pin assignments, failure paths, and docs/code consistency.
 8. Report anything that needs physical hardware verification explicitly.
+9. Commit completed task changes directly to `main`. Stage only task files and
+   preserve other worktree changes. Push `main`; if the push fails, keep the
+   verified local commit and report the blocker.
 
 ## Planning and self-review
 

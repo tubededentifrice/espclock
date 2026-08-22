@@ -105,17 +105,11 @@ name = "espclock-tools"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
-    { name = "platformio" },
-    { name = "pyserial" },
-    { name = "starlette" },
+    { name = "opendle-electronics", extra = ["platformio"] },
 ]
 
 [package.metadata]
-requires-dist = [
-    { name = "platformio", git = "https://github.com/platformio/platformio-core.git?rev=6bf706c9b09ba41beb245b608e63e52578f83c06" },
-    { name = "pyserial", specifier = "==3.5" },
-    { name = "starlette", specifier = "==1.3.1" },
-]
+requires-dist = [{ name = "opendle-electronics", extras = ["platformio"], git = "https://github.com/opendle/opendle-electronics.git?rev=e5243582f44655d0e6f8a344f8691e461db3f905" }]
 
 [[package]]
 name = "h11"
@@ -145,6 +139,18 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/55/79/de6c16cc902f4fc372236926b0ce2ab7845268dcc30fb2fbb7f71b418631/marshmallow-3.26.2.tar.gz", hash = "sha256:bbe2adb5a03e6e3571b573f42527c6fe926e17467833660bebd11593ab8dfd57", size = 222095, upload-time = "2025-12-22T06:53:53.309Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/be/2f/5108cb3ee4ba6501748c4908b908e55f42a5b66245b4cfe0c99326e1ef6e/marshmallow-3.26.2-py3-none-any.whl", hash = "sha256:013fa8a3c4c276c24d26d84ce934dc964e2aa794345a0f8c7e5a7191482c8a73", size = 50964, upload-time = "2025-12-22T06:53:51.801Z" },
+]
+
+[[package]]
+name = "opendle-electronics"
+version = "0.1.0"
+source = { git = "https://github.com/opendle/opendle-electronics.git?rev=e5243582f44655d0e6f8a344f8691e461db3f905#e5243582f44655d0e6f8a344f8691e461db3f905" }
+
+[package.optional-dependencies]
+platformio = [
+    { name = "platformio" },
+    { name = "pyserial" },
+    { name = "starlette" },
 ]
 
 [[package]]
