@@ -50,9 +50,9 @@ runtime-validates the latter and terminates session activation if it is absent.
 1. Open `ios/ESPClockCompanion.xcodeproj` in Xcode.
 2. Select the **ESPClockCompanion** target, open **Signing & Capabilities**, and
    choose your development team.
-3. If Xcode reports that `com.espclock.KidsClockCompanion` is unavailable,
-   change it to a unique bundle identifier such as
-   `com.yourname.KidsClockCompanion`.
+3. Confirm that the bundle identifier is `com.opendle.espclock`. This identifier
+   must belong to the selected Apple developer team before an App Store or
+   TestFlight upload.
 4. Connect and unlock the iPhone, select it as the run destination, and press
    **Run**.
 5. Accept the iPhone's trust/developer-mode prompts if this is the first local

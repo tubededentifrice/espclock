@@ -665,7 +665,9 @@ Do not close or pot the case until every applicable physical item passes.
   esp32-devkit-oled-128x64` completes.
 - [x] All seven display/board profiles compile in the final verification matrix.
 - [x] Both classic ESP32 and C3 radio-diagnostic profiles compile.
-- [x] No firmware compiler warnings are reported.
+- [x] No ESPClock source warnings are reported. The pinned Arduino I2S
+  framework, which ESPClock does not use, emits missing-field-initializer
+  warnings in ESP-IDF C3 builds.
 - [x] Normal icon-inclusive Swift app and test-bundle builds complete for a
   generic iPhone target.
 - [x] All 29 multi-clock packet, preference, and onboarding-lifecycle XCTests

@@ -168,7 +168,7 @@ final class ClockSyncManager: NSObject, ObservableObject {
     private let preferences = ClockPreferenceStore()
     private let accessorySession = ASAccessorySession()
     private let logger = Logger(
-        subsystem: Bundle.main.bundleIdentifier ?? "com.espclock.KidsClockCompanion",
+        subsystem: Bundle.main.bundleIdentifier ?? "com.opendle.espclock",
         category: "BLEOnboarding"
     )
     private var onboardingLifecycle = OnboardingLifecycle()
@@ -525,7 +525,7 @@ final class ClockSyncManager: NSObject, ObservableObject {
         if let saved = defaults.string(forKey: Keys.restorationIdentifier) {
             restorationIdentifier = saved
         } else {
-            restorationIdentifier = "com.espclock.companion.central.\(UUID().uuidString)"
+            restorationIdentifier = "com.opendle.espclock.central.\(UUID().uuidString)"
             defaults.set(restorationIdentifier, forKey: Keys.restorationIdentifier)
         }
         setupText = onboardingLifecycle.radioStatusText(for: .unknown)
