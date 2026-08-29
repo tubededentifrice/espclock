@@ -44,9 +44,11 @@ finish the investigation, then rerun cleanly without recovery before awarding
 
 ## Preserve the invariants
 
-- Use the selected board profile's safe pins. On C3 avoid GPIO2/8/9 and native
-  USB GPIO18/19. On a classic ESP32 DevKit use I2C GPIO21/22 and never use its
-  flash-connected GPIO6/7.
+- Use the selected board profile's safe pins. On C3, do not attach external
+  modules to GPIO2/8/9 or native USB GPIO18/19. A board-specific profile may
+  drive an integrated GPIO8 WS2812 only after ROM strap sampling.
+  On a classic ESP32 DevKit use I2C GPIO21/22 and never use its flash-connected
+  GPIO6/7.
 - Keep display policy behind `DisplayBackend`. Select SSD1306 geometry at
   compile time; do not guess 128x32 versus 128x64 at runtime.
 - Keep the RTC in UTC and apply only a validated, confirmed timezone for display.

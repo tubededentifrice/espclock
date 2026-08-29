@@ -43,7 +43,10 @@ of silently working around it.
 - Travel-board target: ESP32-C3 Super Mini. The supported solderless bench
   target is a classic 38-pin ESP32 DevKit using dedicated PlatformIO profiles;
   never use C3 pin defaults on it.
-- Do not use ESP32-C3 strapping pins GPIO2, GPIO8, or GPIO9 for attached modules. Preserve the board's existing GPIO9 BOOT button recovery gesture.
+- Do not use ESP32-C3 strapping pins GPIO2, GPIO8, or GPIO9 for external
+  modules. Preserve the board's existing GPIO9 BOOT button recovery gesture.
+  An integrated GPIO8 WS2812 is the only exception. Drive it only after ROM
+  strap sampling and only through a board-specific profile.
 - Do not use native USB GPIO18/GPIO19.
 - C3 buses: TM1637 CLK GPIO4 and DIO GPIO3; I2C SDA GPIO6 and SCL GPIO7.
 - Classic ESP32 buses: TM1637 CLK GPIO25 and DIO GPIO26; I2C SDA GPIO21 and

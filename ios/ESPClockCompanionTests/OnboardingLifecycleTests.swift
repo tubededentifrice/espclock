@@ -256,5 +256,116 @@ final class ClockViewStateTests: XCTestCase {
         XCTAssertNil(
             ClockSyncManager.validatedClockName("OtherClock-A1B2")
         )
+        XCTAssertNil(
+            ClockSyncManager.validatedClockName("KidsClock-Ａ1B2")
+        )
+        XCTAssertNil(
+            ClockSyncManager.validatedClockName("KidsClock-A1B2\0")
+        )
+    }
+}
+
+final class ClockAcknowledgementStateTests: XCTestCase {
+    func testAcceptanceRequiresAWriteResponse() throws {
+        var state = ClockAcknowledgementState()
+
+        _ = try XCTUnwrap(state.beginAttempt(isRetry: false))
+
+        XCTAssertFalse(state.completeFromClock())
+        XCTAssertTrue(state.receiveWriteResponse())
+        XCTAssertTrue(state.completeFromClock())
+        XCTAssertFalse(state.isAwaiting)
+    }
+
+    func testAcknowledgementRetryIsBounded() throws {
+        var state = ClockAcknowledgementState()
+        let firstGeneration = try XCTUnwrap(
+            state.beginAttempt(isRetry: false)
+        )
+        XCTAssertTrue(state.receiveWriteResponse())
+
+        XCTAssertEqual(
+            state.acknowledgementTimedOut(generation: firstGeneration),
+            .retry
+        )
+
+        let secondGeneration = try XCTUnwrap(
+            state.beginAttempt(isRetry: true)
+        )
+        XCTAssertTrue(state.receiveWriteResponse())
+        XCTAssertEqual(
+            state.acknowledgementTimedOut(generation: secondGeneration),
+            .fail
+        )
+        XCTAssertNil(state.beginAttempt(isRetry: true))
+    }
+
+    func testCancellationInvalidatesScheduledTimeout() throws {
+        var state = ClockAcknowledgementState()
+        let generation = try XCTUnwrap(
+            state.beginAttempt(isRetry: false)
+        )
+        XCTAssertTrue(state.receiveWriteResponse())
+
+        state.cancel()
+
+        XCTAssertEqual(
+            state.acknowledgementTimedOut(generation: generation),
+            .ignore
+        )
+    }
+
+    func testTwoClocksKeepIndependentAcknowledgementState() throws {
+        var first = ClockAcknowledgementState()
+        var second = ClockAcknowledgementState()
+        let firstGeneration = try XCTUnwrap(
+            first.beginAttempt(isRetry: false)
+        )
+        _ = try XCTUnwrap(second.beginAttempt(isRetry: false))
+        XCTAssertTrue(first.receiveWriteResponse())
+
+        XCTAssertTrue(first.completeFromClock())
+
+        XCTAssertFalse(first.isAwaiting)
+        XCTAssertTrue(second.isAwaiting)
+        XCTAssertFalse(second.hasWriteResponse)
+        XCTAssertEqual(
+            first.acknowledgementTimedOut(generation: firstGeneration),
+            .ignore
+        )
+    }
+}
+
+final class ClockStatusTests: XCTestCase {
+    func testStatusDecoderAcceptsOnlyExactBoundedProtocolValues() {
+        XCTAssertEqual(
+            ClockStatus.decode(Data("time-accepted".utf8)),
+            .timeAccepted
+        )
+        XCTAssertNil(ClockStatus.decode(Data("time-accepted\0".utf8)))
+        XCTAssertNil(ClockStatus.decode(Data(repeating: 65, count: 33)))
+        XCTAssertNil(ClockStatus.decode(Data([0xFF])))
+    }
+}
+
+final class BoundedReconnectStateTests: XCTestCase {
+    func testPersistentFailureStopsAfterThreeRetries() {
+        var state = BoundedReconnectState()
+
+        XCTAssertEqual(state.nextDelay(), 3)
+        XCTAssertEqual(state.nextDelay(), 15)
+        XCTAssertEqual(state.nextDelay(), 60)
+        XCTAssertNil(state.nextDelay())
+        XCTAssertNil(state.nextDelay())
+    }
+
+    func testSuccessfulSetupResetsTheRetrySequence() {
+        var state = BoundedReconnectState()
+        _ = state.nextDelay()
+        _ = state.nextDelay()
+
+        state.reset()
+
+        XCTAssertEqual(state.nextDelay(), 3)
     }
 }

@@ -155,9 +155,11 @@ tradeoff appropriate to a non-safety-critical display. Writes require a bonded,
 encrypted connection; new bonds are admitted only during a visibly indicated
 two-minute boot window; accepted values are range/plausibility checked and
 rate-limited; and one simultaneous BLE connection prevents conflicting writers.
-There is no QR secret, numeric comparison, or full replay counter. The persistent
-five-minute correction bound eventually rejects captured old values but is not
-cryptographic replay protection. Sixteen bonds and CCCD records are provisioned;
+There is no QR secret, numeric comparison, or full replay counter. The
+five-minute correction bound rejects captured old values only while the clock
+has a valid running-time baseline. After total power loss without a valid RTC,
+the next valid synchronization can set the time by any amount. Sixteen bonds
+and CCCD records are provisioned;
 when full, the first bond enumerated by NimBLE is evicted, not a claimed LRU.
 
 The implemented recovery keeps the on-board BOOT button reachable through a
@@ -402,9 +404,10 @@ No item below should be replaced by “works on my phone.”
 
 - [ ] An unbonded phone cannot change time outside the two-minute onboarding
       window, and a connected session cannot write until bonding completes.
-- [ ] Captured old values outside the five-minute correction window are
-      rejected; tests and documentation do not claim cryptographic replay
-      protection.
+- [ ] While the clock has a valid running-time baseline, captured old values
+      outside the five-minute correction window are rejected. Tests and
+      documentation state that this is not cryptographic replay protection and
+      that the bound cannot apply after loss of the running baseline.
 - [ ] Firmware accepts only one simultaneous BLE connection; two authorized
       iPhones hand off that clock using its automatic-sync toggle without
       oscillation.

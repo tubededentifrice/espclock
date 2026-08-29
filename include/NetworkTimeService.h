@@ -1,7 +1,8 @@
 #pragma once
 
+#include <atomic>
+
 #include <DNSServer.h>
-#include <WebServer.h>
 #include <WiFi.h>
 
 #include "CaptivePortalAutofill.h"
@@ -25,7 +26,8 @@ class NetworkTimeService {
              bool hasConfirmedSync, SyncRoute syncRoute,
              int64_t lastSyncUtc, int64_t currentUtc);
   void tick(bool bleConnected);
-  void onExternalTimeSync(TimeSource source, int16_t utcOffsetMinutes);
+  void onExternalTimeSync(TimeSource source, int16_t utcOffsetMinutes,
+                          int64_t appliedUtc);
   Mode mode() const { return mode_; }
   bool portalActive() const { return mode_ == Mode::kPortal; }
   bool wifiBusy() const;
@@ -53,11 +55,24 @@ class NetworkTimeService {
   bool wasFailed(const uint8_t bssid[6]) const;
   void rememberFailure(const uint8_t bssid[6]);
   void handlePortalRoot();
-  void handlePortalTime();
+  void handlePortalTime(const uint8_t* body, size_t length);
+  void servicePortalHttp();
+  void resetPortalHttpClient();
+  bool processPortalHttpLine();
+  void sendPortalHttpResponse(int status, const char* body,
+                              bool html = false);
+  int64_t trustedUtcNow() const;
   static void ntpCallback(struct timeval*);
 
+  enum class PortalHttpState : uint8_t {
+    kRequestLine,
+    kHeaders,
+    kBody,
+  };
+
   DNSServer dns_;
-  WebServer web_;
+  WiFiServer web_;
+  WiFiClient webClient_;
   CaptivePortalAutofill portalAutofill_;
   TimeUpdateHandler handler_ = nullptr;
   Mode mode_ = Mode::kWaitingForBle;
@@ -71,6 +86,8 @@ class NetworkTimeService {
   uint32_t ntpBaselineMs_ = 0;
   uint32_t networkGeneration_ = 0;
   int64_t ntpBaselineEpoch_ = 0;
+  int64_t trustedBaselineUtc_ = 0;
+  uint64_t trustedBaselineUs_ = 0;
   int16_t utcOffsetMinutes_ = 0;
   SyncRoute syncRoute_ = SyncRoute::kUnselected;
   uint8_t wifiAttemptsThisWindow_ = 0;
@@ -90,7 +107,20 @@ class NetworkTimeService {
   bool bleSyncRequestPending_ = false;
   bool captivePortalAutofillReady_ = false;
   bool ntpRetriedAfterPortal_ = false;
+  PortalHttpState portalHttpState_ = PortalHttpState::kRequestLine;
+  uint32_t portalHttpStartedMs_ = 0;
+  uint32_t portalHttpLastDataMs_ = 0;
+  size_t portalHttpHeaderBytes_ = 0;
+  size_t portalHttpLineLength_ = 0;
+  size_t portalHttpContentLength_ = 0;
+  size_t portalHttpBodyLength_ = 0;
+  char portalHttpLine_[257] = {};
+  uint8_t portalHttpBody_[clockcore::kMaximumPortalTimeFormLength] = {};
+  bool portalHttpPost_ = false;
+  bool portalHttpHead_ = false;
+  bool portalHttpContentLengthSeen_ = false;
+  bool portalHttpContentTypeSeen_ = false;
+  bool portalHttpContentTypeValid_ = false;
 
-  static NetworkTimeService* instance_;
-  static volatile bool ntpSynced_;
+  static std::atomic_bool ntpSynced_;
 };

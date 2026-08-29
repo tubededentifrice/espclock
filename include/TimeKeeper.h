@@ -24,9 +24,12 @@ class TimeKeeper {
   RTC_DS3231 rtc_;
   Preferences preferences_;
   int64_t lastSyncUtc_ = 0;
+  int64_t correctionBaselineUtc_ = 0;
+  uint64_t correctionBaselineUs_ = 0;
   int16_t utcOffsetMinutes_ = 0;
   SyncRoute syncRoute_ = SyncRoute::kUnselected;
   bool rtcAvailable_ = false;
   bool timezoneFresh_ = false;
   bool hasConfirmedSync_ = false;
+  bool correctionBaselineValid_ = false;
 };

@@ -56,6 +56,35 @@ void test_payload_rejects_bad_values() {
       epoch, offset));
 }
 
+void test_portal_time_form_is_fixed_capacity_and_exact() {
+  int64_t epoch = 0;
+  int16_t offset = 0;
+  const char normal[] = "epoch=1784970000&offset=240";
+  const char reversed[] = "offset=-300&epoch=1784970000";
+  const char duplicate[] =
+      "epoch=1784970000&epoch=1784970001&offset=240";
+  const char unknown[] = "epoch=1784970000&offset=240&extra=1";
+  TEST_ASSERT_TRUE(clockcore::parsePortalTimeForm(
+      reinterpret_cast<const uint8_t*>(normal), sizeof(normal) - 1,
+      epoch, offset));
+  TEST_ASSERT_EQUAL_INT64(1784970000LL, epoch);
+  TEST_ASSERT_EQUAL_INT16(240, offset);
+  TEST_ASSERT_TRUE(clockcore::parsePortalTimeForm(
+      reinterpret_cast<const uint8_t*>(reversed), sizeof(reversed) - 1,
+      epoch, offset));
+  TEST_ASSERT_EQUAL_INT16(-300, offset);
+  TEST_ASSERT_FALSE(clockcore::parsePortalTimeForm(
+      reinterpret_cast<const uint8_t*>(duplicate), sizeof(duplicate) - 1,
+      epoch, offset));
+  TEST_ASSERT_FALSE(clockcore::parsePortalTimeForm(
+      reinterpret_cast<const uint8_t*>(unknown), sizeof(unknown) - 1,
+      epoch, offset));
+  uint8_t oversized[clockcore::kMaximumPortalTimeFormLength + 1] = {};
+  memset(oversized, '1', sizeof(oversized));
+  TEST_ASSERT_FALSE(clockcore::parsePortalTimeForm(
+      oversized, sizeof(oversized), epoch, offset));
+}
+
 void test_portal_page_submits_device_time_automatically() {
   TEST_ASSERT_NOT_NULL(strstr(
       portalpage::kHtml,
@@ -118,6 +147,94 @@ void test_sync_routes_and_source_specific_intervals() {
       0, clockcore::remainingResyncDelayMs(
              SyncRoute::kBle, kLastSync, 0,
              kBleInterval, kWifiInterval));
+}
+
+void test_persisted_sync_trust_requires_a_complete_valid_record() {
+  constexpr int64_t kLastSync = 1784970000LL;
+  TEST_ASSERT_TRUE(clockcore::isValidPersistedSyncState(
+      true, kLastSync, static_cast<uint8_t>(SyncRoute::kBle), 240));
+  TEST_ASSERT_FALSE(clockcore::isValidPersistedSyncState(
+      false, kLastSync, static_cast<uint8_t>(SyncRoute::kBle), 240));
+  TEST_ASSERT_FALSE(clockcore::isValidPersistedSyncState(
+      true, 0, static_cast<uint8_t>(SyncRoute::kBle), 240));
+  TEST_ASSERT_FALSE(clockcore::isValidPersistedSyncState(
+      true, kLastSync, static_cast<uint8_t>(SyncRoute::kUnselected), 240));
+  TEST_ASSERT_FALSE(clockcore::isValidPersistedSyncState(
+      true, kLastSync, 0xFF, 240));
+  TEST_ASSERT_FALSE(clockcore::isValidPersistedSyncState(
+      true, kLastSync, static_cast<uint8_t>(SyncRoute::kBle), 841));
+}
+
+void test_persisted_sync_record_is_atomic_and_detects_corruption() {
+  uint8_t record[clockcore::kPersistedSyncRecordSize] = {};
+  TEST_ASSERT_TRUE(clockcore::encodePersistedSyncState(
+      1784970000LL, SyncRoute::kPortal, -300, record, sizeof(record)));
+  int64_t epoch = 0;
+  SyncRoute route = SyncRoute::kUnselected;
+  int16_t offset = 0;
+  TEST_ASSERT_TRUE(clockcore::decodePersistedSyncState(
+      record, sizeof(record), epoch, route, offset));
+  TEST_ASSERT_EQUAL_INT64(1784970000LL, epoch);
+  TEST_ASSERT_EQUAL_UINT8(static_cast<uint8_t>(SyncRoute::kPortal),
+                          static_cast<uint8_t>(route));
+  TEST_ASSERT_EQUAL_INT16(-300, offset);
+
+  record[6] ^= 0x01U;
+  TEST_ASSERT_FALSE(clockcore::decodePersistedSyncState(
+      record, sizeof(record), epoch, route, offset));
+  TEST_ASSERT_FALSE(clockcore::decodePersistedSyncState(
+      record, sizeof(record) - 1U, epoch, route, offset));
+}
+
+void test_pending_time_updates_keep_the_highest_priority_source() {
+  TEST_ASSERT_TRUE(clockcore::shouldReplacePendingTimeUpdate(
+      false, TimeSource::kRtc, TimeSource::kNtp));
+  TEST_ASSERT_TRUE(clockcore::shouldReplacePendingTimeUpdate(
+      true, TimeSource::kNtp, TimeSource::kPortal));
+  TEST_ASSERT_TRUE(clockcore::shouldReplacePendingTimeUpdate(
+      true, TimeSource::kPortal, TimeSource::kBle));
+  TEST_ASSERT_TRUE(clockcore::shouldReplacePendingTimeUpdate(
+      true, TimeSource::kBle, TimeSource::kBle));
+  TEST_ASSERT_FALSE(clockcore::shouldReplacePendingTimeUpdate(
+      true, TimeSource::kBle, TimeSource::kPortal));
+  TEST_ASSERT_FALSE(clockcore::shouldReplacePendingTimeUpdate(
+      true, TimeSource::kPortal, TimeSource::kNtp));
+
+  // A lower-priority callback can run after dequeue and before its network
+  // producer stops. The applied source must discard that late update, but it
+  // must preserve a later higher-priority update.
+  TEST_ASSERT_TRUE(clockcore::shouldDiscardQueuedTimeUpdate(
+      true, TimeSource::kNtp, TimeSource::kBle));
+  TEST_ASSERT_TRUE(clockcore::shouldDiscardQueuedTimeUpdate(
+      true, TimeSource::kPortal, TimeSource::kPortal));
+  TEST_ASSERT_FALSE(clockcore::shouldDiscardQueuedTimeUpdate(
+      true, TimeSource::kBle, TimeSource::kNtp));
+  TEST_ASSERT_FALSE(clockcore::shouldDiscardQueuedTimeUpdate(
+      false, TimeSource::kNtp, TimeSource::kBle));
+}
+
+void test_monotonic_intervals_are_wrap_safe() {
+  constexpr uint32_t kStarted = UINT32_MAX - 10U;
+  TEST_ASSERT_FALSE(clockcore::monotonicIntervalElapsed(
+      18U, kStarted, 30U));
+  TEST_ASSERT_TRUE(clockcore::monotonicIntervalElapsed(
+      19U, kStarted, 30U));
+}
+
+void test_monotonic_epoch_is_independent_of_system_clock_changes() {
+  constexpr int64_t kBaseline = 1784970000LL;
+  constexpr uint64_t kStartedUs = 900000000000ULL;
+  TEST_ASSERT_EQUAL_INT64(
+      kBaseline + 125,
+      clockcore::extrapolateMonotonicEpoch(
+          kBaseline, kStartedUs, kStartedUs + 125999999ULL));
+  TEST_ASSERT_EQUAL_INT64(
+      0, clockcore::extrapolateMonotonicEpoch(
+             kBaseline, kStartedUs, kStartedUs - 1ULL));
+  TEST_ASSERT_EQUAL_INT64(
+      0, clockcore::extrapolateMonotonicEpoch(
+             clockcore::kMaximumValidEpoch, kStartedUs,
+             kStartedUs + 1000000ULL));
 }
 
 void test_initial_sync_phase_boundaries() {
@@ -510,6 +627,27 @@ void test_wifi_candidates_are_bounded_and_ranked_without_duplicates() {
   TEST_ASSERT_EQUAL_INT32(-40, ranker.at(0)->rssi);
 }
 
+void test_wifi_candidates_break_equal_rssi_ties_by_bssid() {
+  clockcore::WifiCandidateRanker firstOrder;
+  clockcore::WifiCandidateRanker reverseOrder;
+  const uint8_t lowerBssid[6] = {0x30, 0x41, 0x52, 0x63, 0x74, 0x01};
+  const uint8_t higherBssid[6] = {0x30, 0x41, 0x52, 0x63, 0x74, 0x02};
+
+  TEST_ASSERT_TRUE(
+      firstOrder.consider("Higher", higherBssid, 1, -50));
+  TEST_ASSERT_TRUE(firstOrder.consider("Lower", lowerBssid, 1, -50));
+  TEST_ASSERT_TRUE(reverseOrder.consider("Lower", lowerBssid, 1, -50));
+  TEST_ASSERT_TRUE(
+      reverseOrder.consider("Higher", higherBssid, 1, -50));
+
+  TEST_ASSERT_EQUAL_STRING("Lower", firstOrder.at(0)->ssid);
+  TEST_ASSERT_EQUAL_STRING("Higher", firstOrder.at(1)->ssid);
+  TEST_ASSERT_EQUAL_STRING(firstOrder.at(0)->ssid,
+                           reverseOrder.at(0)->ssid);
+  TEST_ASSERT_EQUAL_STRING(firstOrder.at(1)->ssid,
+                           reverseOrder.at(1)->ssid);
+}
+
 void test_wifi_candidate_rejects_invalid_metadata() {
   clockcore::WifiCandidateRanker ranker;
   const uint8_t bssid[6] = {0x40, 0x51, 0x62, 0x73, 0x84, 0x95};
@@ -549,6 +687,11 @@ void test_captive_portal_ntp_failure_policy_is_single_attempt() {
       static_cast<uint8_t>(
           captiveportal::actionAfterNtpFailure(false, false)));
   TEST_ASSERT_EQUAL_UINT8(
+      static_cast<uint8_t>(
+          captiveportal::NtpFailureAction::kFailCandidate),
+      static_cast<uint8_t>(
+          captiveportal::actionAfterNtpFailure(true, false, true)));
+  TEST_ASSERT_EQUAL_UINT8(
       static_cast<uint8_t>(captiveportal::PortalResultAction::kRetryNtp),
       static_cast<uint8_t>(captiveportal::actionAfterPortalResult(
           captiveportal::AutomationResult::kPortalOpened)));
@@ -557,6 +700,16 @@ void test_captive_portal_ntp_failure_policy_is_single_attempt() {
           captiveportal::PortalResultAction::kFailCandidate),
       static_cast<uint8_t>(captiveportal::actionAfterPortalResult(
           captiveportal::AutomationResult::kInternetAlreadyOpen)));
+  TEST_ASSERT_EQUAL_UINT8(
+      static_cast<uint8_t>(
+          captiveportal::PortalTimeoutAction::kTryNextCandidate),
+      static_cast<uint8_t>(
+          captiveportal::actionAfterPortalTimeout(false)));
+  TEST_ASSERT_EQUAL_UINT8(
+      static_cast<uint8_t>(
+          captiveportal::PortalTimeoutAction::kFinishWindow),
+      static_cast<uint8_t>(
+          captiveportal::actionAfterPortalTimeout(true)));
 }
 
 void test_captive_portal_redirect_timeout_and_generation_limits() {
@@ -739,6 +892,75 @@ void test_captive_portal_fills_common_fields_and_terms() {
   TEST_ASSERT_EQUAL_STRING("US", submission.fields[6].value);
 }
 
+void test_captive_portal_recognizes_valued_boolean_attributes() {
+  constexpr char kHtml[] =
+      "<form method=post action='/join'>"
+      "<input name=access_code required='required'>"
+      "<input type=checkbox name=marketing value=yes disabled='disabled'>"
+      "<button>Continue</button></form>";
+  captiveportal::SyntheticIdentity identity;
+  captiveportal::makeSyntheticIdentity(0xABCDEF, identity);
+  captiveportal::Submission submission;
+  TEST_ASSERT_TRUE(captiveportal::buildSubmission(
+      kHtml, strlen(kHtml), "https://portal.example/welcome", identity,
+      submission));
+  TEST_ASSERT_EQUAL_UINT8(1, submission.fieldCount);
+  TEST_ASSERT_EQUAL_STRING("access_code", submission.fields[0].name);
+  TEST_ASSERT_EQUAL_STRING("Guest", submission.fields[0].value);
+}
+
+void test_captive_portal_checks_only_explicit_terms_boxes() {
+  constexpr char kOptionalMarketing[] =
+      "<form method=post action='/join'>"
+      "<input type=hidden name=token value=one>"
+      "<input type=checkbox name=accept_marketing value=yes>"
+      "<input type=checkbox name=photos value=yes>"
+      "<input type=checkbox name=accept_photos value=yes>"
+      "<input type=checkbox name=accept_terms value=yes>"
+      "<button>Continue</button></form>";
+  constexpr char kRequiredUnknown[] =
+      "<form method=post action='/join'>"
+      "<input type=checkbox name=marketing value=yes required>"
+      "<button>Continue</button></form>";
+  captiveportal::SyntheticIdentity identity;
+  captiveportal::makeSyntheticIdentity(0xABCDEF, identity);
+  captiveportal::Submission submission;
+  TEST_ASSERT_TRUE(captiveportal::buildSubmission(
+      kOptionalMarketing, strlen(kOptionalMarketing),
+      "https://portal.example/welcome", identity, submission));
+  TEST_ASSERT_EQUAL_UINT8(2, submission.fieldCount);
+  TEST_ASSERT_EQUAL_STRING("token", submission.fields[0].name);
+  TEST_ASSERT_EQUAL_STRING("accept_terms", submission.fields[1].name);
+  TEST_ASSERT_FALSE(captiveportal::buildSubmission(
+      kRequiredUnknown, strlen(kRequiredUnknown),
+      "https://portal.example/welcome", identity, submission));
+}
+
+void test_captive_portal_does_not_select_marketing_radio_choices() {
+  constexpr char kOptionalMarketing[] =
+      "<form method=post action='/join'>"
+      "<input type=hidden name=token value=one>"
+      "<input type=radio name=newsletter value=yes>"
+      "<input type=radio name=newsletter value=no>"
+      "<button>Continue</button></form>";
+  constexpr char kRequiredMarketing[] =
+      "<form method=post action='/join'>"
+      "<input type=radio name=marketing value=yes required>"
+      "<input type=radio name=marketing value=no required>"
+      "<button>Continue</button></form>";
+  captiveportal::SyntheticIdentity identity;
+  captiveportal::makeSyntheticIdentity(0xABCDEF, identity);
+  captiveportal::Submission submission;
+  TEST_ASSERT_TRUE(captiveportal::buildSubmission(
+      kOptionalMarketing, strlen(kOptionalMarketing),
+      "https://portal.example/welcome", identity, submission));
+  TEST_ASSERT_EQUAL_UINT8(1, submission.fieldCount);
+  TEST_ASSERT_EQUAL_STRING("token", submission.fields[0].name);
+  TEST_ASSERT_FALSE(captiveportal::buildSubmission(
+      kRequiredMarketing, strlen(kRequiredMarketing),
+      "https://portal.example/welcome", identity, submission));
+}
+
 void test_captive_portal_prefers_free_guest_form() {
   constexpr char kHtml[] =
       "<form action='/paid'><input name=email required>"
@@ -863,9 +1085,15 @@ int main(int, char**) {
   RUN_TEST(test_text_time_payload);
   RUN_TEST(test_binary_time_payload_with_negative_offset);
   RUN_TEST(test_payload_rejects_bad_values);
+  RUN_TEST(test_portal_time_form_is_fixed_capacity_and_exact);
   RUN_TEST(test_portal_page_submits_device_time_automatically);
   RUN_TEST(test_time_correction_requires_fresh_candidate);
   RUN_TEST(test_sync_routes_and_source_specific_intervals);
+  RUN_TEST(test_persisted_sync_trust_requires_a_complete_valid_record);
+  RUN_TEST(test_persisted_sync_record_is_atomic_and_detects_corruption);
+  RUN_TEST(test_pending_time_updates_keep_the_highest_priority_source);
+  RUN_TEST(test_monotonic_intervals_are_wrap_safe);
+  RUN_TEST(test_monotonic_epoch_is_independent_of_system_clock_changes);
   RUN_TEST(test_initial_sync_phase_boundaries);
   RUN_TEST(test_unconfirmed_rtc_allows_first_large_correction);
   RUN_TEST(test_light_filter_is_smooth_and_bounded);
@@ -886,6 +1114,7 @@ int main(int, char**) {
   RUN_TEST(test_bssid_backoff_is_per_radio_not_ssid);
   RUN_TEST(test_bssid_backoff_has_a_hard_capacity);
   RUN_TEST(test_wifi_candidates_are_bounded_and_ranked_without_duplicates);
+  RUN_TEST(test_wifi_candidates_break_equal_rssi_ties_by_bssid);
   RUN_TEST(test_wifi_candidate_rejects_invalid_metadata);
   RUN_TEST(test_captive_portal_identity_uses_reserved_contact_data);
   RUN_TEST(test_captive_portal_ntp_failure_policy_is_single_attempt);
@@ -897,6 +1126,9 @@ int main(int, char**) {
   RUN_TEST(test_captive_portal_preserves_repeated_hidden_fields);
   RUN_TEST(test_captive_portal_submits_a_truly_fieldless_button_form);
   RUN_TEST(test_captive_portal_fills_common_fields_and_terms);
+  RUN_TEST(test_captive_portal_recognizes_valued_boolean_attributes);
+  RUN_TEST(test_captive_portal_checks_only_explicit_terms_boxes);
+  RUN_TEST(test_captive_portal_does_not_select_marketing_radio_choices);
   RUN_TEST(test_captive_portal_prefers_free_guest_form);
   RUN_TEST(test_captive_portal_rejects_credential_and_payment_forms);
   RUN_TEST(test_captive_portal_rejects_cross_origin_and_unsupported_actions);

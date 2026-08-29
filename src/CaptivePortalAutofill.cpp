@@ -465,7 +465,6 @@ bool requestFollowingRedirects(
     }
     strcpy(currentUrl, nextUrl);
     ++response.redirects;
-    ++totalRedirects;
     if (response.status == 301 || response.status == 302 ||
         response.status == 303) {
       method = captiveportal::Method::kGet;

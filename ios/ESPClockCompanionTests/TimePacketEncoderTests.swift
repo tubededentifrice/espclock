@@ -49,6 +49,30 @@ final class TimePacketEncoderTests: XCTestCase {
             )
         )
     }
+
+    func testRejectsNonFiniteAndUnrepresentableDatesWithoutTrapping() {
+        XCTAssertThrowsError(
+            try TimePacketEncoder.encode(
+                date: Date(timeIntervalSince1970: .nan)
+            )
+        )
+        XCTAssertThrowsError(
+            try TimePacketEncoder.encode(
+                date: Date(timeIntervalSince1970: .greatestFiniteMagnitude)
+            )
+        )
+    }
+
+    func testRejectsOffsetThatIsNotAWholeMinute() throws {
+        let timeZone = try XCTUnwrap(TimeZone(secondsFromGMT: 1))
+
+        XCTAssertThrowsError(
+            try TimePacketEncoder.encode(
+                date: Date(timeIntervalSince1970: 1_735_689_600),
+                timeZone: timeZone
+            )
+        )
+    }
 }
 
 private extension FixedWidthInteger {

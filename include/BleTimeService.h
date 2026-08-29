@@ -10,14 +10,13 @@ class TimeKeeper;
 
 class BleTimeService {
  public:
-  void begin(TimeUpdateHandler handler, bool hasConfirmedSync);
+  void begin(TimeUpdateHandler handler);
   void tick(const TimeKeeper& clock);
   bool connected() const { return connectionCount_.load() > 0; }
   bool advertising() const;
   bool pairingOpen() const;
   void requestSync();
   void reportTimeResult(bool accepted);
-  void markTimeConfirmed() { hasConfirmedSync_.store(true); }
   void clearBonds();
 
  private:
@@ -62,5 +61,4 @@ class BleTimeService {
   bool policyDisconnectPending_ = false;
   std::atomic_bool timeWritePending_{false};
   std::atomic_bool activeConnectionBonded_{false};
-  std::atomic_bool hasConfirmedSync_{false};
 };

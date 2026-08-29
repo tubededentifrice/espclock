@@ -40,6 +40,11 @@ enum class PortalResultAction : uint8_t {
   kFailCandidate,
 };
 
+enum class PortalTimeoutAction : uint8_t {
+  kTryNextCandidate,
+  kFinishWindow,
+};
+
 struct Url {
   bool secure = false;
   char host[kMaximumHostLength + 1] = {};
@@ -88,8 +93,10 @@ class CookieJar {
 void makeSyntheticIdentity(uint32_t randomValue,
                            SyntheticIdentity& identity);
 NtpFailureAction actionAfterNtpFailure(bool autofillReady,
-                                       bool alreadyRetriedAfterPortal);
+                                       bool alreadyRetriedAfterPortal,
+                                       bool wifiWindowExpired = false);
 PortalResultAction actionAfterPortalResult(AutomationResult result);
+PortalTimeoutAction actionAfterPortalTimeout(bool wifiWindowExpired);
 bool consumeRedirect(uint8_t& totalRedirects);
 bool automationWindowExpired(uint32_t now, uint32_t started,
                              uint32_t timeoutMs);

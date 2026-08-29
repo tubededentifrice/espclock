@@ -42,7 +42,13 @@ enum TimePacketEncoder {
     }
 
     static func encode(date: Date, timeZone: TimeZone = .current) throws -> Data {
-        let epoch = Int64(date.timeIntervalSince1970.rounded(.down))
+        let epochSeconds = date.timeIntervalSince1970.rounded(.down)
+        guard epochSeconds.isFinite,
+              epochSeconds >= Double(minimumEpoch),
+              epochSeconds <= Double(maximumEpoch) else {
+            throw TimePacketEncodingError.epochOutOfRange
+        }
+        let epoch = Int64(epochSeconds)
         let offsetSeconds = timeZone.secondsFromGMT(for: date)
         guard offsetSeconds % 60 == 0,
               let offset = Int16(exactly: offsetSeconds / 60) else {

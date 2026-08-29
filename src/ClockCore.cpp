@@ -1,6 +1,7 @@
 #include "ClockCore.h"
 
 #include <ctype.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -37,6 +38,141 @@ bool isAcceptableCorrection(const bool hasConfirmedSync,
 bool isValidSyncRouteValue(const uint8_t value) {
   return value >= static_cast<uint8_t>(SyncRoute::kBle) &&
          value <= static_cast<uint8_t>(SyncRoute::kNtp);
+}
+
+bool isValidPersistedSyncState(const bool confirmed,
+                               const int64_t lastSyncEpoch,
+                               const uint8_t routeValue,
+                               const int utcOffsetMinutes) {
+  return confirmed && isValidEpoch(lastSyncEpoch) &&
+         isValidSyncRouteValue(routeValue) &&
+         isValidUtcOffset(utcOffsetMinutes);
+}
+
+namespace {
+uint32_t syncRecordChecksum(const uint8_t* data, const size_t length) {
+  uint32_t checksum = 2166136261UL;
+  for (size_t index = 0; index < length; ++index) {
+    checksum ^= data[index];
+    checksum *= 16777619UL;
+  }
+  return checksum;
+}
+}  // namespace
+
+bool encodePersistedSyncState(const int64_t lastSyncEpoch,
+                              const SyncRoute route,
+                              const int16_t utcOffsetMinutes,
+                              uint8_t* output, const size_t outputSize) {
+  if (output == nullptr || outputSize != kPersistedSyncRecordSize ||
+      !isValidPersistedSyncState(true, lastSyncEpoch,
+                                 static_cast<uint8_t>(route),
+                                 utcOffsetMinutes)) {
+    return false;
+  }
+  memset(output, 0, outputSize);
+  output[0] = 1;
+  output[1] = static_cast<uint8_t>(route);
+  const uint16_t rawOffset = static_cast<uint16_t>(utcOffsetMinutes);
+  output[2] = static_cast<uint8_t>(rawOffset);
+  output[3] = static_cast<uint8_t>(rawOffset >> 8U);
+  const uint64_t rawEpoch = static_cast<uint64_t>(lastSyncEpoch);
+  for (uint8_t index = 0; index < 8; ++index) {
+    output[4 + index] =
+        static_cast<uint8_t>(rawEpoch >> (8U * index));
+  }
+  const uint32_t checksum = syncRecordChecksum(output, 12);
+  for (uint8_t index = 0; index < 4; ++index) {
+    output[12 + index] =
+        static_cast<uint8_t>(checksum >> (8U * index));
+  }
+  return true;
+}
+
+bool decodePersistedSyncState(const uint8_t* data, const size_t length,
+                              int64_t& lastSyncEpoch, SyncRoute& route,
+                              int16_t& utcOffsetMinutes) {
+  if (data == nullptr || length != kPersistedSyncRecordSize || data[0] != 1) {
+    return false;
+  }
+  uint32_t storedChecksum = 0;
+  for (uint8_t index = 0; index < 4; ++index) {
+    storedChecksum |= static_cast<uint32_t>(data[12 + index])
+                      << (8U * index);
+  }
+  if (storedChecksum != syncRecordChecksum(data, 12)) {
+    return false;
+  }
+  uint64_t rawEpoch = 0;
+  for (uint8_t index = 0; index < 8; ++index) {
+    rawEpoch |= static_cast<uint64_t>(data[4 + index]) << (8U * index);
+  }
+  const uint16_t rawOffset = static_cast<uint16_t>(data[2]) |
+                             (static_cast<uint16_t>(data[3]) << 8U);
+  const int64_t candidateEpoch = static_cast<int64_t>(rawEpoch);
+  const SyncRoute candidateRoute = static_cast<SyncRoute>(data[1]);
+  const int16_t candidateOffset = static_cast<int16_t>(rawOffset);
+  if (!isValidPersistedSyncState(true, candidateEpoch, data[1],
+                                 candidateOffset)) {
+    return false;
+  }
+  lastSyncEpoch = candidateEpoch;
+  route = candidateRoute;
+  utcOffsetMinutes = candidateOffset;
+  return true;
+}
+
+namespace {
+uint8_t timeSourcePriority(const TimeSource source) {
+  switch (source) {
+    case TimeSource::kBle:
+      return 3U;
+    case TimeSource::kPortal:
+      return 2U;
+    case TimeSource::kNtp:
+      return 1U;
+    case TimeSource::kRtc:
+    default:
+      return 0U;
+  }
+}
+}  // namespace
+
+bool shouldReplacePendingTimeUpdate(const bool updatePending,
+                                    const TimeSource pendingSource,
+                                    const TimeSource incomingSource) {
+  return !updatePending ||
+         timeSourcePriority(incomingSource) >=
+             timeSourcePriority(pendingSource);
+}
+
+bool shouldDiscardQueuedTimeUpdate(const bool updatePending,
+                                   const TimeSource queuedSource,
+                                   const TimeSource appliedSource) {
+  return updatePending &&
+         timeSourcePriority(queuedSource) <=
+             timeSourcePriority(appliedSource);
+}
+
+bool monotonicIntervalElapsed(const uint32_t now, const uint32_t started,
+                              const uint32_t duration) {
+  return now - started >= duration;
+}
+
+int64_t extrapolateMonotonicEpoch(const int64_t baselineEpoch,
+                                  const uint64_t baselineMicroseconds,
+                                  const uint64_t nowMicroseconds) {
+  if (!isValidEpoch(baselineEpoch) ||
+      nowMicroseconds < baselineMicroseconds) {
+    return 0;
+  }
+  const uint64_t elapsedSeconds =
+      (nowMicroseconds - baselineMicroseconds) / 1000000ULL;
+  if (elapsedSeconds >
+      static_cast<uint64_t>(kMaximumValidEpoch - baselineEpoch)) {
+    return 0;
+  }
+  return baselineEpoch + static_cast<int64_t>(elapsedSeconds);
 }
 
 SyncRoute syncRouteForSource(const TimeSource source) {
@@ -140,6 +276,71 @@ bool parseTimeSyncPayload(const uint8_t* data, const size_t length,
   utcOffsetMinutes = static_cast<int16_t>(parsedOffset);
   return parsedOffset >= INT16_MIN && parsedOffset <= INT16_MAX &&
          isValidEpoch(epoch) && isValidUtcOffset(utcOffsetMinutes);
+}
+
+bool parsePortalTimeForm(const uint8_t* data, const size_t length,
+                         int64_t& epoch, int16_t& utcOffsetMinutes) {
+  if (data == nullptr || length == 0 ||
+      length > kMaximumPortalTimeFormLength ||
+      memchr(data, '\0', length) != nullptr) {
+    return false;
+  }
+
+  char epochText[21] = {};
+  char offsetText[7] = {};
+  bool epochSeen = false;
+  bool offsetSeen = false;
+  size_t cursor = 0;
+  while (cursor < length) {
+    const size_t fieldBegin = cursor;
+    while (cursor < length && data[cursor] != '&') {
+      ++cursor;
+    }
+    const size_t fieldEnd = cursor;
+    if (cursor < length) {
+      ++cursor;
+    }
+    size_t equals = fieldBegin;
+    while (equals < fieldEnd && data[equals] != '=') {
+      ++equals;
+    }
+    if (equals == fieldBegin || equals == fieldEnd) {
+      return false;
+    }
+    const size_t keyLength = equals - fieldBegin;
+    const size_t valueLength = fieldEnd - equals - 1U;
+    char* destination = nullptr;
+    size_t destinationSize = 0;
+    if (keyLength == 5 &&
+        memcmp(data + fieldBegin, "epoch", keyLength) == 0 && !epochSeen) {
+      epochSeen = true;
+      destination = epochText;
+      destinationSize = sizeof(epochText);
+    } else if (keyLength == 6 &&
+               memcmp(data + fieldBegin, "offset", keyLength) == 0 &&
+               !offsetSeen) {
+      offsetSeen = true;
+      destination = offsetText;
+      destinationSize = sizeof(offsetText);
+    } else {
+      return false;
+    }
+    if (valueLength == 0 || valueLength >= destinationSize) {
+      return false;
+    }
+    memcpy(destination, data + equals + 1U, valueLength);
+    destination[valueLength] = '\0';
+  }
+  if (!epochSeen || !offsetSeen) {
+    return false;
+  }
+  char payload[sizeof(epochText) + sizeof(offsetText)] = {};
+  const int written = snprintf(payload, sizeof(payload), "%s,%s",
+                               epochText, offsetText);
+  return written > 0 && static_cast<size_t>(written) < sizeof(payload) &&
+         parseTimeSyncPayload(reinterpret_cast<const uint8_t*>(payload),
+                              static_cast<size_t>(written), epoch,
+                              utcOffsetMinutes);
 }
 
 UserDisplayState selectUserDisplayState(
@@ -288,7 +489,9 @@ bool WifiCandidateRanker::consider(const char* ssid,
 
   uint8_t insertionIndex = 0;
   while (insertionIndex < size_ &&
-         candidates_[insertionIndex].rssi >= rssi) {
+         (candidates_[insertionIndex].rssi > rssi ||
+          (candidates_[insertionIndex].rssi == rssi &&
+           memcmp(candidates_[insertionIndex].bssid, bssid, 6) <= 0))) {
     ++insertionIndex;
   }
   if (insertionIndex >= kCapacity) {

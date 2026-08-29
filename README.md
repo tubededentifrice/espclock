@@ -364,7 +364,12 @@ persisted UTC offset alone is not treated as a valid instant.
 
 ### Recover from a badly wrong but plausible RTC
 
-The first accepted synchronization is allowed to correct an uninitialized clock by any amount. After that, a persistent confirmed-sync marker activates the five-minute anti-replay/corruption limit.
+The first accepted synchronization can correct an uninitialized clock by any
+amount. After a confirmed synchronization, the five-minute correction limit
+applies while the ESP or RTC supplies a valid running-time baseline. If total
+power loss and an invalid or missing RTC remove that baseline, the next valid
+synchronization can set the clock by any amount. The stored confirmation marker
+alone cannot provide replay protection without a running baseline.
 
 If the RTC is later wrong by more than five minutes, leave the clock powered
 and hold the board's existing `BOOT` button for five seconds. The OLED shows
@@ -449,9 +454,15 @@ The status characteristic reports `time-needed`, `sync-request`, `time-pending`,
 
 BLE bonding capacity is finite even though any family phone may take a turn. This build provisions **16 bond and notification records** and evicts the first bond returned by NimBLE when full so a new family phone can recover the clock. A pairing attempt at capacity must make room before authentication, so a cancelled attempt may evict one existing bond; the acceptance checklist covers this recovery edge case. “Any number of phones” means the clock is not owned by one account or hard-coded handset, not infinite simultaneous connections. Each clock's firmware is compiled for one simultaneous connection, and only one iPhone should leave automatic synchronization enabled for that clock. The iPhone app can hold independent connections to many clocks at the same time.
 
-After the clock has a persistent confirmed-sync marker, phone, portal, and NTP corrections must be within five minutes of its running time. An uninitialized clock is allowed one arbitrary valid correction; the BOOT recovery gesture deliberately reopens that path. This rejects captured old values and arbitrary large forward/backward jumps during normal operation while retaining a no-computer recovery path. BLE writes are also limited to one accepted update per 30 seconds.
+After the clock has a confirmed-sync marker and a valid running-time baseline,
+phone, portal, and NTP corrections must be within five minutes of that time. An
+uninitialized clock, or a clock that lost its baseline during total power loss,
+can accept one arbitrary valid correction. The BOOT recovery gesture also
+reopens that path. This rule rejects captured old values and large corrections
+during normal operation. It is not cryptographic replay protection. BLE writes
+are also limited to one accepted update per 30 seconds.
 
-BLE uses encrypted **Just Works** bonding because the clock has no input device. The phone shows/owns the approval, but Just Works has no numeric-comparison MITM protection. New unbonded peers are rejected after the two-minute onboarding window. The setup Wi-Fi AP is intentionally open for cross-platform ease, accepts one update, applies the confirmed-clock freshness rule, then shuts down. These controls fit a low-consequence clock, but they are not equivalent to a per-device cryptographic owner secret.
+BLE uses encrypted **Just Works** bonding because the clock has no input device. The phone shows/owns the approval, but Just Works has no numeric-comparison MITM protection. New unbonded peers are rejected after the two-minute onboarding window. The setup Wi-Fi AP is intentionally open for cross-platform ease, accepts one update, applies the confirmed-clock freshness rule when a valid running baseline exists, then shuts down. These controls fit a low-consequence clock, but they are not equivalent to a per-device cryptographic owner secret.
 
 ## Open Wi-Fi/NTP fallback
 
@@ -474,7 +485,9 @@ This is deliberately bounded and contains no credentials:
   payment, voucher, membership, reservation, and room-number flows;
 - accepted guest/terms forms receive only a random per-attempt synthetic
   identity such as `Travel Clock`, an `@example.com` address, and a reserved
-  `+1 202-555-01xx` phone number; checkboxes, including terms, are accepted;
+  `+1 202-555-01xx` phone number; identified terms/conditions boxes are
+  accepted, optional marketing choices stay clear, and unknown required
+  choices fail closed;
 - HTTPS certificate verification is deliberately disabled only inside this
   disposable-data portal worker because trustworthy UTC may not exist yet;
 - no SSID/password is saved;
@@ -636,7 +649,7 @@ Do not close or pot the case until every applicable physical item passes.
 
 ### Automated
 
-- [x] `uv run --locked opendle-pio test -e native` passes (43/43).
+- [x] `uv run --locked opendle-pio test -e native` passes (53/53).
 - [x] `uv run --locked python -m unittest discover -s tools/tests` passes the nine
   diagnostic-runner parser and classification tests.
 - [x] `uv run --locked opendle-pio run -e

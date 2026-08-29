@@ -68,6 +68,33 @@ bool containsNoCase(const char* text, const char* needle) {
   return false;
 }
 
+bool containsSemanticTokenNoCase(const char* text, const char* token) {
+  if (text == nullptr || token == nullptr || *token == '\0') {
+    return false;
+  }
+  const size_t tokenLength = strlen(token);
+  for (const char* cursor = text; *cursor != '\0'; ++cursor) {
+    if (!startsNoCase(cursor, token)) {
+      continue;
+    }
+    const bool startsToken =
+        cursor == text ||
+        isalnum(static_cast<unsigned char>(cursor[-1])) == 0 ||
+        (islower(static_cast<unsigned char>(cursor[-1])) != 0 &&
+         isupper(static_cast<unsigned char>(*cursor)) != 0);
+    const char following = cursor[tokenLength];
+    const bool endsToken =
+        following == '\0' ||
+        isalnum(static_cast<unsigned char>(following)) == 0 ||
+        (islower(static_cast<unsigned char>(cursor[tokenLength - 1U])) != 0 &&
+         isupper(static_cast<unsigned char>(following)) != 0);
+    if (startsToken && endsToken) {
+      return true;
+    }
+  }
+  return false;
+}
+
 const char* findNoCase(const char* begin, const char* end,
                        const char* needle) {
   if (begin == nullptr || end == nullptr || needle == nullptr ||
@@ -217,7 +244,8 @@ const char* skipSpace(const char* cursor, const char* end) {
 
 bool attribute(const char* tagBegin, const char* tagEnd, const char* name,
                char* output, const size_t outputSize,
-               bool* const overflow = nullptr) {
+               bool* const overflow = nullptr,
+               const bool presenceOnly = false) {
   if (output == nullptr || outputSize == 0) {
     return false;
   }
@@ -271,6 +299,9 @@ bool attribute(const char* tagBegin, const char* tagEnd, const char* name,
       ++cursor;
     }
     if (matches) {
+      if (presenceOnly) {
+        return true;
+      }
       const bool decoded =
           decodeText(valueBegin, valueEnd, output, outputSize);
       if (!decoded && overflow != nullptr) {
@@ -284,7 +315,8 @@ bool attribute(const char* tagBegin, const char* tagEnd, const char* name,
 
 bool hasAttribute(const char* begin, const char* end, const char* name) {
   char ignored[2] = {};
-  return attribute(begin, end, name, ignored, sizeof(ignored));
+  return attribute(begin, end, name, ignored, sizeof(ignored), nullptr,
+                   true);
 }
 
 bool hasBlockedMeaning(const char* text) {
@@ -336,6 +368,40 @@ bool hasRejectedButtonMeaning(const char* text) {
   for (const char* term : kRejected) {
     if (containsNoCase(text, term)) {
       return true;
+    }
+  }
+  return false;
+}
+
+bool hasOptionalOptInMeaning(const char* name, const char* id,
+                             const char* placeholder) {
+  const char* texts[] = {name, id, placeholder};
+  constexpr const char* kOptionalOptInMeanings[] = {
+      "marketing", "newsletter", "subscribe", "promotion",
+      "advertis"};
+  for (const char* text : texts) {
+    for (const char* meaning : kOptionalOptInMeanings) {
+      if (containsNoCase(text, meaning)) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+bool isTermsCheckbox(const char* name, const char* id,
+                     const char* placeholder) {
+  const char* texts[] = {name, id, placeholder};
+  if (hasOptionalOptInMeaning(name, id, placeholder)) {
+    return false;
+  }
+  constexpr const char* kTermsMeanings[] = {
+      "term", "terms", "condition", "conditions", "tos", "eula"};
+  for (const char* text : texts) {
+    for (const char* meaning : kTermsMeanings) {
+      if (containsSemanticTokenNoCase(text, meaning)) {
+        return true;
+      }
     }
   }
   return false;
@@ -619,8 +685,9 @@ void makeSyntheticIdentity(const uint32_t randomValue,
 }
 
 NtpFailureAction actionAfterNtpFailure(
-    const bool autofillReady, const bool alreadyRetriedAfterPortal) {
-  return autofillReady && !alreadyRetriedAfterPortal
+    const bool autofillReady, const bool alreadyRetriedAfterPortal,
+    const bool wifiWindowExpired) {
+  return autofillReady && !alreadyRetriedAfterPortal && !wifiWindowExpired
              ? NtpFailureAction::kTryPortal
              : NtpFailureAction::kFailCandidate;
 }
@@ -629,6 +696,12 @@ PortalResultAction actionAfterPortalResult(const AutomationResult result) {
   return result == AutomationResult::kPortalOpened
              ? PortalResultAction::kRetryNtp
              : PortalResultAction::kFailCandidate;
+}
+
+PortalTimeoutAction actionAfterPortalTimeout(
+    const bool wifiWindowExpired) {
+  return wifiWindowExpired ? PortalTimeoutAction::kFinishWindow
+                           : PortalTimeoutAction::kTryNextCandidate;
 }
 
 bool consumeRedirect(uint8_t& totalRedirects) {
@@ -902,17 +975,29 @@ bool buildSubmission(const char* html, const size_t length,
             candidate.blocked = true;
           }
         } else if (equalsNoCase(type, "checkbox")) {
-          if (!addField(candidate.submission, name,
-                        value[0] == '\0' ? "on" : value)) {
+          if (isTermsCheckbox(name, id, placeholder)) {
+            if (!addField(candidate.submission, name,
+                          value[0] == '\0' ? "on" : value)) {
+              candidate.blocked = true;
+            }
+            candidate.score += 5;
+          } else if (hasAttribute(tagBegin, tagEnd, "required")) {
+            // Do not opt in to an unknown mandatory choice. Terms acceptance
+            // must be explicit in the control metadata.
             candidate.blocked = true;
           }
-          candidate.score += 5;
         } else if (equalsNoCase(type, "radio")) {
-          const bool checked = hasAttribute(tagBegin, tagEnd, "checked");
-          if ((checked || findField(candidate.submission, name) < 0) &&
-              !addField(candidate.submission, name,
-                        value[0] == '\0' ? "on" : value, checked)) {
-            candidate.blocked = true;
+          if (hasOptionalOptInMeaning(name, id, placeholder)) {
+            if (hasAttribute(tagBegin, tagEnd, "required")) {
+              candidate.blocked = true;
+            }
+          } else {
+            const bool checked = hasAttribute(tagBegin, tagEnd, "checked");
+            if ((checked || findField(candidate.submission, name) < 0) &&
+                !addField(candidate.submission, name,
+                          value[0] == '\0' ? "on" : value, checked)) {
+              candidate.blocked = true;
+            }
           }
         } else {
           const char* mapped =

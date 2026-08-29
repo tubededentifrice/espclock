@@ -289,9 +289,10 @@ relaunch, later-clock addition, picker failure isolation, radio-state
 messaging, and per-clock removal cleanup.
 Run them on a compatible iOS Simulator or selected physical device from Xcode.
 
-The normal icon-inclusive app build, test-bundle build, and all 20 Simulator
-tests (four packet, three per-clock preference, one identity-presentation, and
-12 onboarding lifecycle cases) pass with the documented toolchain. If a Mac
+The normal icon-inclusive app build, test-bundle build, and all 29 Simulator
+tests pass with the documented toolchain. These tests include six packet, three
+per-clock preference, one identity-presentation, 12 onboarding lifecycle, four
+acknowledgement-state, one status-decoding, and two reconnect-state cases. If a Mac
 reports a CoreSimulator framework mismatch or `iOS ... is not installed`, run
 Xcode once, finish **Xcode → Settings → Components**, or use
 `xcodebuild -runFirstLaunch` followed by `xcodebuild -downloadPlatform iOS`.

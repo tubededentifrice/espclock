@@ -1,24 +1,31 @@
 #include "NetworkTimeService.h"
 
 #include <Arduino.h>
+#include <ctype.h>
 #include <cstring>
 #include <esp_system.h>
+#include <esp_timer.h>
 #include <esp_sntp.h>
 #include <esp_wifi.h>
+#include <stdlib.h>
+#include <strings.h>
 
 #include "AppConfig.h"
 #include "ClockCore.h"
 #include "Diagnostics.h"
 #include "PortalPage.h"
 
-NetworkTimeService* NetworkTimeService::instance_ = nullptr;
-volatile bool NetworkTimeService::ntpSynced_ = false;
+std::atomic_bool NetworkTimeService::ntpSynced_{false};
 
 namespace {
 constexpr uint16_t kDnsPort = 53;
 constexpr uint8_t kPortalWifiChannel = 1;
 constexpr uint8_t kMaximumPortalStartAttempts = 3;
 constexpr uint32_t kPortalStartRetryMs = 2000UL;
+constexpr uint32_t kPortalHttpIdleTimeoutMs = 2000UL;
+constexpr uint32_t kPortalHttpTotalTimeoutMs = 5000UL;
+constexpr size_t kMaximumPortalHeaderBytes = 1024;
+constexpr size_t kMaximumPortalBytesPerTick = 256;
 constexpr char kNtpServer1[] = "time.cloudflare.com";
 constexpr char kNtpServer2[] = "pool.ntp.org";
 static_assert(config::kMaximumWifiAttemptsPerWindow ==
@@ -27,6 +34,31 @@ static_assert(config::kMaximumWifiAttemptsPerWindow ==
 
 bool deadlineReached(const uint32_t now, const uint32_t deadline) {
   return static_cast<int32_t>(now - deadline) >= 0;
+}
+
+const char* httpReason(const int status) {
+  switch (status) {
+    case 200:
+      return "OK";
+    case 400:
+      return "Bad Request";
+    case 404:
+      return "Not Found";
+    case 405:
+      return "Method Not Allowed";
+    case 411:
+      return "Length Required";
+    case 413:
+      return "Payload Too Large";
+    case 415:
+      return "Unsupported Media Type";
+    case 431:
+      return "Request Header Fields Too Large";
+    case 503:
+      return "Service Unavailable";
+    default:
+      return "Error";
+  }
 }
 }  // namespace
 
@@ -41,8 +73,11 @@ void NetworkTimeService::begin(const TimeUpdateHandler handler,
   handler_ = handler;
   utcOffsetMinutes_ = utcOffsetMinutes;
   hasConfirmedSync_ = hasConfirmedSync;
+  if (hasConfirmedSync_ && clockcore::isValidEpoch(currentUtc)) {
+    trustedBaselineUtc_ = currentUtc;
+    trustedBaselineUs_ = static_cast<uint64_t>(esp_timer_get_time());
+  }
   syncRoute_ = hasConfirmedSync ? syncRoute : SyncRoute::kUnselected;
-  instance_ = this;
   bootStartedMs_ = millis();
   modeStartedMs_ = bootStartedMs_;
   initialSelectionActive_ = syncRoute_ == SyncRoute::kUnselected;
@@ -57,9 +92,6 @@ void NetworkTimeService::begin(const TimeUpdateHandler handler,
     armResync(delayMs);
   }
 
-  web_.on("/", HTTP_GET, [this]() { handlePortalRoot(); });
-  web_.on("/set-time", HTTP_POST, [this]() { handlePortalTime(); });
-  web_.onNotFound([this]() { handlePortalRoot(); });
 #if CLOCK_ENABLE_OPEN_WIFI_FALLBACK && CLOCK_ENABLE_CAPTIVE_PORTAL_AUTOFILL
   captivePortalAutofillReady_ = portalAutofill_.begin();
   CLOCK_DIAGNOSTIC_PRINTF("[WiFi] captive autofill worker=%s\n",
@@ -132,6 +164,7 @@ void NetworkTimeService::startPortal(const bool persistent) {
 void NetworkTimeService::stopPortal() {
   dns_.stop();
   web_.stop();
+  resetPortalHttpClient();
   const bool stopped = WiFi.softAPdisconnect(true);
   (void)stopped;
   CLOCK_DIAGNOSTIC_PRINTF("[WiFi] portal stop=%s\n",
@@ -139,53 +172,295 @@ void NetworkTimeService::stopPortal() {
 }
 
 void NetworkTimeService::handlePortalRoot() {
-  web_.sendHeader("Cache-Control", "no-store");
-  web_.send(200, "text/html", FPSTR(portalpage::kHtml));
+  sendPortalHttpResponse(200, nullptr, true);
 }
 
-void NetworkTimeService::handlePortalTime() {
+void NetworkTimeService::handlePortalTime(const uint8_t* body,
+                                          const size_t length) {
   if (portalAccepted_) {
     // Treat a browser retry as successful without applying the update twice.
-    web_.send(200, "text/plain", "Clock already set");
+    sendPortalHttpResponse(200, "Clock already set");
     return;
   }
-  if (web_.clientContentLength() > 64) {
-    web_.send(413, "text/plain", "Request too large");
-    return;
-  }
-  if (!web_.hasArg("epoch") || !web_.hasArg("offset")) {
-    web_.send(400, "text/plain", "Missing epoch or offset");
-    return;
-  }
-  if (web_.arg("epoch").length() > 20 || web_.arg("offset").length() > 6) {
-    web_.send(413, "text/plain", "Request too large");
-    return;
-  }
-  String payload;
-  payload.reserve(web_.arg("epoch").length() + web_.arg("offset").length() + 2);
-  payload = web_.arg("epoch");
-  payload += ',';
-  payload += web_.arg("offset");
   int64_t epoch = 0;
   int16_t offset = 0;
-  if (!clockcore::parseTimeSyncPayload(
-          reinterpret_cast<const uint8_t*>(payload.c_str()), payload.length(),
-          epoch, offset) ||
+  const int64_t trustedNow = trustedUtcNow();
+  if (!clockcore::parsePortalTimeForm(body, length, epoch, offset) ||
       !clockcore::isAcceptableCorrection(
-          hasConfirmedSync_, static_cast<int64_t>(time(nullptr)), epoch)) {
-    web_.send(400, "text/plain", "Invalid time");
+          hasConfirmedSync_ && clockcore::isValidEpoch(trustedNow),
+          trustedNow, epoch)) {
+    sendPortalHttpResponse(400, "Invalid time");
     return;
   }
   utcOffsetMinutes_ = offset;
   if (handler_ == nullptr) {
-    web_.send(503, "text/plain", "Clock unavailable");
+    sendPortalHttpResponse(503, "Clock unavailable");
     return;
   }
   handler_({epoch, utcOffsetMinutes_, TimeSource::kPortal});
   portalAccepted_ = true;
-  web_.send(200, "text/plain", "Clock set");
+  sendPortalHttpResponse(200, "Clock set");
   // Give the captive browser time to receive the successful response.
   portalStopAtMs_ = millis() + 1500UL;
+}
+
+int64_t NetworkTimeService::trustedUtcNow() const {
+  return clockcore::extrapolateMonotonicEpoch(
+      trustedBaselineUtc_, trustedBaselineUs_,
+      static_cast<uint64_t>(esp_timer_get_time()));
+}
+
+void NetworkTimeService::resetPortalHttpClient() {
+  if (webClient_) {
+    webClient_.stop();
+  }
+  webClient_ = WiFiClient();
+  portalHttpState_ = PortalHttpState::kRequestLine;
+  portalHttpHeaderBytes_ = 0;
+  portalHttpLineLength_ = 0;
+  portalHttpContentLength_ = 0;
+  portalHttpBodyLength_ = 0;
+  portalHttpPost_ = false;
+  portalHttpHead_ = false;
+  portalHttpContentLengthSeen_ = false;
+  portalHttpContentTypeSeen_ = false;
+  portalHttpContentTypeValid_ = false;
+}
+
+void NetworkTimeService::sendPortalHttpResponse(const int status,
+                                                const char* body,
+                                                const bool html) {
+  if (!webClient_) {
+    return;
+  }
+  const size_t bodyLength = html ? strlen_P(portalpage::kHtml)
+                                 : (body == nullptr ? 0 : strlen(body));
+  char header[256] = {};
+  const int written = snprintf(
+      header, sizeof(header),
+      "HTTP/1.1 %d %s\r\nContent-Type: %s\r\nContent-Length: %u\r\n"
+      "Cache-Control: no-store\r\nConnection: close\r\n\r\n",
+      status, httpReason(status), html ? "text/html" : "text/plain",
+      static_cast<unsigned>(bodyLength));
+  if (written > 0 && static_cast<size_t>(written) < sizeof(header)) {
+    webClient_.write(reinterpret_cast<const uint8_t*>(header),
+                     static_cast<size_t>(written));
+    if (!portalHttpHead_ && bodyLength > 0) {
+      if (html) {
+        webClient_.write_P(portalpage::kHtml, bodyLength);
+      } else {
+        webClient_.write(reinterpret_cast<const uint8_t*>(body), bodyLength);
+      }
+    }
+  }
+  resetPortalHttpClient();
+}
+
+bool NetworkTimeService::processPortalHttpLine() {
+  portalHttpLine_[portalHttpLineLength_] = '\0';
+  if (portalHttpState_ == PortalHttpState::kRequestLine) {
+    char* firstSpace = strchr(portalHttpLine_, ' ');
+    char* secondSpace = firstSpace == nullptr ? nullptr
+                                               : strchr(firstSpace + 1, ' ');
+    if (firstSpace == nullptr || secondSpace == nullptr ||
+        strchr(secondSpace + 1, ' ') != nullptr) {
+      sendPortalHttpResponse(400, "Invalid request");
+      return false;
+    }
+    *firstSpace = '\0';
+    *secondSpace = '\0';
+    const char* method = portalHttpLine_;
+    char* target = firstSpace + 1;
+    const char* version = secondSpace + 1;
+    if ((strcmp(version, "HTTP/1.1") != 0 &&
+         strcmp(version, "HTTP/1.0") != 0) ||
+        target[0] != '/') {
+      sendPortalHttpResponse(400, "Invalid request");
+      return false;
+    }
+    char* query = strchr(target, '?');
+    if (query != nullptr) {
+      *query = '\0';
+    }
+    portalHttpPost_ = strcmp(method, "POST") == 0;
+    portalHttpHead_ = strcmp(method, "HEAD") == 0;
+    if (!portalHttpPost_ && strcmp(method, "GET") != 0 &&
+        !portalHttpHead_) {
+      sendPortalHttpResponse(405, "Method not allowed");
+      return false;
+    }
+    if (portalHttpPost_ && strcmp(target, "/set-time") != 0) {
+      sendPortalHttpResponse(404, "Not found");
+      return false;
+    }
+    portalHttpState_ = PortalHttpState::kHeaders;
+    return true;
+  }
+
+  if (portalHttpState_ != PortalHttpState::kHeaders) {
+    return false;
+  }
+  if (portalHttpLineLength_ == 0) {
+    if (!portalHttpPost_) {
+      handlePortalRoot();
+      return false;
+    }
+    if (!portalHttpContentLengthSeen_) {
+      sendPortalHttpResponse(411, "Content-Length required");
+      return false;
+    }
+    if (!portalHttpContentTypeValid_) {
+      sendPortalHttpResponse(415, "Unsupported media type");
+      return false;
+    }
+    if (portalHttpContentLength_ == 0) {
+      handlePortalTime(nullptr, 0);
+      return false;
+    }
+    portalHttpState_ = PortalHttpState::kBody;
+    return true;
+  }
+
+  char* colon = strchr(portalHttpLine_, ':');
+  if (colon == nullptr || colon == portalHttpLine_) {
+    sendPortalHttpResponse(400, "Invalid header");
+    return false;
+  }
+  *colon = '\0';
+  char* value = colon + 1;
+  while (*value != '\0' && isspace(static_cast<unsigned char>(*value))) {
+    ++value;
+  }
+  char* valueEnd = value + strlen(value);
+  while (valueEnd > value &&
+         isspace(static_cast<unsigned char>(valueEnd[-1]))) {
+    *--valueEnd = '\0';
+  }
+  if (strcasecmp(portalHttpLine_, "Content-Length") == 0) {
+    if (portalHttpContentLengthSeen_) {
+      sendPortalHttpResponse(400, "Duplicate Content-Length");
+      return false;
+    }
+    if (*value == '\0') {
+      sendPortalHttpResponse(400, "Invalid Content-Length");
+      return false;
+    }
+    size_t parsed = 0;
+    for (const char* digit = value; *digit != '\0'; ++digit) {
+      if (*digit < '0' || *digit > '9' ||
+          parsed > (clockcore::kMaximumPortalTimeFormLength -
+                    static_cast<size_t>(*digit - '0')) /
+                       10U) {
+        sendPortalHttpResponse(413, "Request too large");
+        return false;
+      }
+      parsed = parsed * 10U + static_cast<size_t>(*digit - '0');
+    }
+    portalHttpContentLengthSeen_ = true;
+    portalHttpContentLength_ = parsed;
+  } else if (strcasecmp(portalHttpLine_, "Content-Type") == 0) {
+    if (portalHttpContentTypeSeen_) {
+      sendPortalHttpResponse(400, "Duplicate Content-Type");
+      return false;
+    }
+    portalHttpContentTypeSeen_ = true;
+    constexpr char kFormType[] = "application/x-www-form-urlencoded";
+    portalHttpContentTypeValid_ =
+        strncasecmp(value, kFormType, sizeof(kFormType) - 1U) == 0 &&
+        (value[sizeof(kFormType) - 1U] == '\0' ||
+         value[sizeof(kFormType) - 1U] == ';');
+  } else if (strcasecmp(portalHttpLine_, "Transfer-Encoding") == 0) {
+    sendPortalHttpResponse(400, "Transfer-Encoding is not supported");
+    return false;
+  }
+  return true;
+}
+
+void NetworkTimeService::servicePortalHttp() {
+  const uint32_t now = millis();
+  if (!webClient_) {
+    webClient_ = web_.available();
+    if (!webClient_) {
+      return;
+    }
+    portalHttpState_ = PortalHttpState::kRequestLine;
+    portalHttpHeaderBytes_ = 0;
+    portalHttpLineLength_ = 0;
+    portalHttpContentLength_ = 0;
+    portalHttpBodyLength_ = 0;
+    portalHttpPost_ = false;
+    portalHttpHead_ = false;
+    portalHttpContentLengthSeen_ = false;
+    portalHttpContentTypeSeen_ = false;
+    portalHttpContentTypeValid_ = false;
+    portalHttpStartedMs_ = now;
+    portalHttpLastDataMs_ = now;
+    webClient_.setTimeout(1);
+  }
+
+  if (clockcore::monotonicIntervalElapsed(
+          now, portalHttpStartedMs_, kPortalHttpTotalTimeoutMs)) {
+    resetPortalHttpClient();
+    return;
+  }
+
+  size_t processed = 0;
+  while (webClient_ && webClient_.available() > 0 &&
+         processed++ < kMaximumPortalBytesPerTick) {
+    const int incoming = webClient_.read();
+    if (incoming < 0) {
+      break;
+    }
+    portalHttpLastDataMs_ = millis();
+    const uint8_t value = static_cast<uint8_t>(incoming);
+    if (portalHttpState_ == PortalHttpState::kBody) {
+      if (portalHttpBodyLength_ >= portalHttpContentLength_ ||
+          portalHttpBodyLength_ >= sizeof(portalHttpBody_)) {
+        sendPortalHttpResponse(413, "Request too large");
+        break;
+      }
+      portalHttpBody_[portalHttpBodyLength_++] = value;
+      if (portalHttpBodyLength_ == portalHttpContentLength_) {
+        handlePortalTime(portalHttpBody_, portalHttpBodyLength_);
+        break;
+      }
+      continue;
+    }
+
+    if (++portalHttpHeaderBytes_ > kMaximumPortalHeaderBytes) {
+      sendPortalHttpResponse(431, "Headers too large");
+      break;
+    }
+    if (value == '\n') {
+      if (portalHttpLineLength_ == 0 ||
+          portalHttpLine_[portalHttpLineLength_ - 1U] != '\r') {
+        sendPortalHttpResponse(400, "Invalid line ending");
+        break;
+      }
+      --portalHttpLineLength_;
+      if (!processPortalHttpLine()) {
+        break;
+      }
+      portalHttpLineLength_ = 0;
+      continue;
+    }
+    if (value == '\0' || (value < 0x20U && value != '\r' && value != '\t') ||
+        value == 0x7FU ||
+        portalHttpLineLength_ + 1U >= sizeof(portalHttpLine_)) {
+      sendPortalHttpResponse(400, "Invalid request");
+      break;
+    }
+    portalHttpLine_[portalHttpLineLength_++] = static_cast<char>(value);
+  }
+
+  if (webClient_ &&
+      ((!webClient_.connected() && webClient_.available() <= 0) ||
+       clockcore::monotonicIntervalElapsed(
+           millis(), portalHttpLastDataMs_, kPortalHttpIdleTimeoutMs) ||
+       clockcore::monotonicIntervalElapsed(
+           millis(), portalHttpStartedMs_, kPortalHttpTotalTimeoutMs))) {
+    resetPortalHttpClient();
+  }
 }
 
 void NetworkTimeService::startScan() {
@@ -286,8 +561,11 @@ bool NetworkTimeService::wifiWindowExpired(const uint32_t now) const {
 }
 
 void NetworkTimeService::startNtp() {
-  ntpSynced_ = false;
-  ntpBaselineEpoch_ = static_cast<int64_t>(time(nullptr));
+  ntpSynced_.store(false);
+  ntpBaselineEpoch_ = trustedUtcNow();
+  if (!clockcore::isValidEpoch(ntpBaselineEpoch_)) {
+    ntpBaselineEpoch_ = static_cast<int64_t>(time(nullptr));
+  }
   ntpBaselineMs_ = millis();
   sntp_set_time_sync_notification_cb(ntpCallback);
   configTime(0, 0, kNtpServer1, kNtpServer2);
@@ -296,7 +574,7 @@ void NetworkTimeService::startNtp() {
 }
 
 void NetworkTimeService::ntpCallback(struct timeval*) {
-  ntpSynced_ = true;
+  ntpSynced_.store(true);
 }
 
 void NetworkTimeService::finishNtp(const bool success) {
@@ -315,7 +593,7 @@ void NetworkTimeService::finishNtp(const bool success) {
     accepted = false;
   }
   esp_sntp_stop();
-  ntpSynced_ = false;
+  ntpSynced_.store(false);
   if (accepted && handler_ != nullptr) {
     handler_({candidateEpoch, utcOffsetMinutes_,
               TimeSource::kNtp});
@@ -327,7 +605,8 @@ void NetworkTimeService::finishNtp(const bool success) {
     resyncDueArmed_ = false;
   } else if (candidate != nullptr &&
              captiveportal::actionAfterNtpFailure(
-                 captivePortalAutofillReady_, ntpRetriedAfterPortal_) ==
+                 captivePortalAutofillReady_, ntpRetriedAfterPortal_,
+                 wifiWindowExpired(millis())) ==
                  captiveportal::NtpFailureAction::kTryPortal) {
     startPortalAutomation();
   } else {
@@ -389,7 +668,7 @@ void NetworkTimeService::finishPortalAutomation(
 void NetworkTimeService::stopNetworkActivity() {
   if (mode_ == Mode::kWaitingForNtp) {
     esp_sntp_stop();
-    ntpSynced_ = false;
+    ntpSynced_.store(false);
   }
   if (mode_ == Mode::kPortal) {
     stopPortal();
@@ -420,9 +699,12 @@ void NetworkTimeService::finishFailedAttempt() {
 }
 
 void NetworkTimeService::onExternalTimeSync(
-    const TimeSource source, const int16_t utcOffsetMinutes) {
+    const TimeSource source, const int16_t utcOffsetMinutes,
+    const int64_t appliedUtc) {
   utcOffsetMinutes_ = utcOffsetMinutes;
   hasConfirmedSync_ = true;
+  trustedBaselineUtc_ = appliedUtc;
+  trustedBaselineUs_ = static_cast<uint64_t>(esp_timer_get_time());
   initialSelectionActive_ = false;
   syncOverdue_ = false;
   const SyncRoute candidateRoute =
@@ -471,7 +753,7 @@ void NetworkTimeService::tick(const bool bleConnected) {
       break;
     case Mode::kPortal:
       dns_.processNextRequest();
-      web_.handleClient();
+      servicePortalHttp();
       if (portalStopAtMs_ != 0 && deadlineReached(now, portalStopAtMs_)) {
         portalStopAtMs_ = 0;
         if (scheduleAfterPortalResponse_) {
@@ -524,24 +806,31 @@ void NetworkTimeService::tick(const bool bleConnected) {
     case Mode::kWaitingForNtp:
       if (wifiWindowExpired(now)) {
         finishNtp(false);
-      } else if (ntpSynced_) {
-        ntpSynced_ = false;
+      } else if (ntpSynced_.exchange(false)) {
         finishNtp(true);
       } else if (now - modeStartedMs_ >= config::kNtpTimeoutMs) {
         finishNtp(false);
       }
       break;
     case Mode::kWaitingForPortalAutomation: {
-      if (wifiWindowExpired(now) ||
+      const bool windowExpired = wifiWindowExpired(now);
+      const bool automationExpired =
           captiveportal::automationWindowExpired(
-              now, modeStartedMs_, config::kCaptivePortalTimeoutMs)) {
+              now, modeStartedMs_, config::kCaptivePortalTimeoutMs);
+      if (windowExpired || automationExpired) {
         const clockcore::WifiCandidate* candidate =
             candidateRanker_.at(activeCandidateIndex_);
         if (candidate != nullptr) {
           rememberFailure(candidate->bssid);
         }
         portalAutofill_.cancel(++networkGeneration_);
-        finishFailedAttempt();
+        if (captiveportal::actionAfterPortalTimeout(windowExpired) ==
+            captiveportal::PortalTimeoutAction::kFinishWindow) {
+          finishFailedAttempt();
+        } else {
+          WiFi.disconnect(false, false);
+          connectNextCandidate();
+        }
         break;
       }
       uint32_t generation = 0;

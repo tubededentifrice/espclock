@@ -144,10 +144,8 @@ class BleTimeService::StatusCallbacks : public NimBLECharacteristicCallbacks {
   BleTimeService& owner_;
 };
 
-void BleTimeService::begin(const TimeUpdateHandler handler,
-                           const bool hasConfirmedSync) {
+void BleTimeService::begin(const TimeUpdateHandler handler) {
   handler_ = handler;
-  hasConfirmedSync_ = hasConfirmedSync;
   bootStartedMs_ = millis();
 
   const uint64_t chipId = ESP.getEfuseMac();
@@ -355,10 +353,7 @@ void BleTimeService::onTimeWrite(NimBLECharacteristic* characteristic) {
   int16_t offset = 0;
   if (!clockcore::parseTimeSyncPayload(
           reinterpret_cast<const uint8_t*>(value.data()), value.size(),
-          epoch, offset) ||
-      !clockcore::isAcceptableCorrection(
-          hasConfirmedSync_.load(), static_cast<int64_t>(time(nullptr)),
-          epoch)) {
+          epoch, offset)) {
     setStatusValue(statusCharacteristic_, "invalid-time");
     statusCharacteristic_->notify();
     return;

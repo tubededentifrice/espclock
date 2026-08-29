@@ -22,25 +22,10 @@ bool recoveryButtonHeld = false;
 bool recoveryResetArmed = false;
 uint32_t recoveryButtonPressedMs = 0;
 
-uint8_t sourcePriority(const TimeSource source) {
-  switch (source) {
-    case TimeSource::kBle:
-      return 3;
-    case TimeSource::kPortal:
-      return 2;
-    case TimeSource::kNtp:
-      return 1;
-    case TimeSource::kRtc:
-    default:
-      return 0;
-  }
-}
-
 void enqueueTimeUpdate(const TimeUpdate& update) {
   portENTER_CRITICAL(&timeUpdateMux);
-  if (!timeUpdatePending ||
-      sourcePriority(update.source) >=
-          sourcePriority(pendingTimeUpdate.source)) {
+  if (clockcore::shouldReplacePendingTimeUpdate(
+          timeUpdatePending, pendingTimeUpdate.source, update.source)) {
     pendingTimeUpdate = update;
     timeUpdatePending = true;
   }
@@ -57,6 +42,15 @@ bool dequeueTimeUpdate(TimeUpdate& update) {
   }
   portEXIT_CRITICAL(&timeUpdateMux);
   return available;
+}
+
+void discardSupersededTimeUpdate(const TimeSource appliedSource) {
+  portENTER_CRITICAL(&timeUpdateMux);
+  if (clockcore::shouldDiscardQueuedTimeUpdate(
+          timeUpdatePending, pendingTimeUpdate.source, appliedSource)) {
+    timeUpdatePending = false;
+  }
+  portEXIT_CRITICAL(&timeUpdateMux);
 }
 
 void handleRecoveryButton() {
@@ -88,7 +82,7 @@ void handleRecoveryButton() {
 
 UserDisplayState displayState() {
   return clockcore::selectUserDisplayState(
-      recoveryButtonHeld, networkTime.portalActive(), networkTime.wifiBusy(),
+      recoveryResetArmed, networkTime.portalActive(), networkTime.wifiBusy(),
       clockTime.hasValidTime(),
       networkTime.setupPairingDisplayActive(),
       networkTime.syncOverdue());
@@ -111,7 +105,7 @@ void setup() {
 
   clockTime.begin();
   clockDisplay.begin();
-  bleTime.begin(enqueueTimeUpdate, clockTime.hasConfirmedSync());
+  bleTime.begin(enqueueTimeUpdate);
   networkTime.begin(enqueueTimeUpdate, clockTime.utcOffsetMinutes(),
                     clockTime.hasConfirmedSync(), clockTime.syncRoute(),
                     clockTime.lastSyncUtc(), clockTime.utcNow());
@@ -142,9 +136,13 @@ void loop() {
       bleTime.reportTimeResult(applied);
     }
     if (applied) {
-      bleTime.markTimeConfirmed();
       networkTime.onExternalTimeSync(update.source,
-                                     update.utcOffsetMinutes);
+                                     update.utcOffsetMinutes,
+                                     clockTime.utcNow());
+      // The applied source has now stopped its lower-priority producers. Drop
+      // an update that arrived after dequeue, but keep a later higher-priority
+      // update for the next loop.
+      discardSupersededTimeUpdate(update.source);
       CLOCK_DIAGNOSTIC_PRINTF(
           "Time synchronized: source=%u epoch=%lld offset=%d\n",
           static_cast<unsigned>(update.source),
