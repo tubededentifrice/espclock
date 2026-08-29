@@ -505,9 +505,9 @@ def main(argv: list[str] | None = None) -> int:
         iphone_ble = "skip"
         if args.iphone == "ask":
             print(
-                "\nOn a physical iPhone, use Add Kids Clock for a new board or "
+                "\nOn a physical iPhone, use Add ESPClock for a new board or "
                 "Sync Now for an already authorized board. Select "
-                f"{state.ble_name or 'KidsClock-xxxx'} and wait for the time "
+                f"{state.ble_name or 'ESPClock-xxxx'} and wait for the time "
                 "acknowledgement."
             )
             iphone_ble = ask_observation(

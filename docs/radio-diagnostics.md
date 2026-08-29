@@ -88,7 +88,7 @@ The script prints two board-specific names:
 
 - `ESPClock-RadioTest-xxxx`: merely observe this SSID in the phone or
   computer's Wi-Fi picker; joining it is unnecessary.
-- `KidsClock-xxxx`: select this in **Add Kids Clock** for a new board, or use
+- `ESPClock-xxxx`: select this in **Add ESPClock** for a new board, or use
   **Sync Now** when that board is already authorized in the physical-iPhone
   companion app; wait for a successful sync.
 
@@ -130,7 +130,7 @@ receive scan from `FAIL` to `INCOMPLETE`; it never turns it into a pass.
 
 AccessorySetupKit error 150 is a connection failure, not successful
 onboarding. Record it as `no`. When retesting a board whose flash/bonds were
-erased, remove its previous Kids Clock authorization from the iPhone if iOS
+erased, remove its previous ESPClock authorization from the iPhone if iOS
 keeps trying stale bond material, then rerun the test.
 
 ## Useful modes

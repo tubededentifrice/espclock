@@ -15,8 +15,8 @@ struct ContentView: View {
 
                     Button(
                         syncManager.clocks.isEmpty
-                            ? "Add Kids Clock"
-                            : "Add Another Clock"
+                            ? "Add ESPClock"
+                            : "Add Another ESPClock"
                     ) {
                         syncManager.addClock()
                     }
@@ -127,7 +127,7 @@ struct ContentView: View {
                     .font(.footnote)
                 }
             }
-            .navigationTitle("Kids Clocks")
+            .navigationTitle("ESPClock")
         }
     }
 }

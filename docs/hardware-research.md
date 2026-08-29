@@ -37,7 +37,7 @@ useful on compatible iPhones, but is not universal. The implemented initial sour
    retaining the last phone-confirmed offset; after an NTP failure, make one
    bounded synthetic-data-only captive-portal attempt before the final retry.
 
-The captive-page path needs one phone action ("join `KidsClock-xxxx`"), but no form,
+The captive-page path needs one phone action ("join `ESPClock-xxxx`"), but no form,
 account, app, Wi-Fi password, or manual time entry. It is the most painless
 cross-platform fallback technically available.
 
@@ -277,7 +277,7 @@ ownerless; any compatible family phone can take a turn sequentially.
 The current custom service is advertised in a connectable legacy PDU with an
 explicit, non-truncated split: flags, complete 128-bit service UUID, and
 preferred connection intervals consume 27 primary-advertisement bytes; the
-complete 14-character `KidsClock-xxxx` name consumes 16 scan-response bytes.
+complete 13-character `ESPClock-xxxx` name consumes 15 scan-response bytes.
 Bondability is negotiated after connection and is not represented by a generic
 advertising-data “pairable” flag. The two-minute new-phone window retains the
 30–60 ms discovery cadence already proven with AccessorySetupKit; afterward the
@@ -288,7 +288,7 @@ timing, background reconnect, and AccessorySetupKit discovery acceptance.
 ### Practical no-app fallback
 
 When automatic sources fail, start a WPA2-free local AP named
-`KidsClock-xxxx` and a captive portal. The page needs no controls: JavaScript
+`ESPClock-xxxx` and a captive portal. The page needs no controls: JavaScript
 reads `Date.now()` plus the browser's current UTC offset, sends both to the ESP,
 shows the confirmed result, and disconnects. This works in normal browsers on iOS and Android
 without an installed app. It still requires the user to join that Wi-Fi network;

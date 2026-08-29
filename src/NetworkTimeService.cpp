@@ -117,7 +117,7 @@ void NetworkTimeService::startPortal(const bool persistent) {
   portalStopAtMs_ = 0;
   scheduleAfterPortalResponse_ = false;
   char ssid[24] = {};
-  snprintf(ssid, sizeof(ssid), "KidsClock-%04X",
+  snprintf(ssid, sizeof(ssid), "ESPClock-%04X",
            static_cast<unsigned>(ESP.getEfuseMac() & 0xFFFFU));
   ++portalStartAttempts_;
   const bool modeStarted = WiFi.mode(WIFI_AP);

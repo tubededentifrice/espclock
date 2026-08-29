@@ -30,10 +30,10 @@ as a finished child-facing case.
 
 1. Reads UTC from a DS3231 when one is fitted and valid; otherwise it starts
    without inventing a time and waits for a synchronization source.
-2. Advertises `KidsClock-xxxx` over BLE continuously. On a clock without a
+2. Advertises `ESPClock-xxxx` over BLE continuously. On a clock without a
    selected synchronization route, BLE runs alone for the first 10 seconds.
 3. From 10 seconds until two minutes after boot, also offers the no-install
-   `KidsClock-xxxx` captive portal while BLE remains available. Loading its
+   `ESPClock-xxxx` captive portal while BLE remains available. Loading its
    page transfers the phone's time and offset automatically.
 4. If neither phone route succeeds by two minutes, tries open Wi-Fi access
    points in signal-strength order for a bounded window and requests UTC from
@@ -325,8 +325,8 @@ The native Swift companion lives in `ios/` and requires iOS 18 or newer. Open
 iPhone, then press **Run**. It contains no third-party packages, account,
 location permission, network service, advertising, or analytics.
 
-Power-cycle each clock immediately before tapping **Add Kids Clock** or **Add
-Another Clock**. Apple's accessory picker handles the required phone-level
+Power-cycle each clock immediately before tapping **Add ESPClock** or **Add
+Another ESPClock**. Apple's accessory picker handles the required phone-level
 approval. One iPhone can keep automatic sync enabled for many clocks. For each
 clock, enable automatic sync on only one family iPhone. Do not force-quit the
 app; each connected clock will ask it for fresh time about every six hours. See the
@@ -343,7 +343,7 @@ app; each connected clock will ask it for fresh time about every six hours. See 
   to the display as soon as a route succeeds or the initial fallback attempt
   ends.
 - BLE advertising remains available for already bonded clients even after the normal time display returns. It uses the proven 30–60 ms discovery cadence during the two-minute onboarding window, then an 800–1000 ms low-duty cadence for later reconnects. New, unbonded phones are accepted for two minutes after boot so Apple's accessory picker has time to complete.
-- At 10 seconds, the `KidsClock-xxxx` portal is added without stopping BLE.
+- At 10 seconds, the `ESPClock-xxxx` portal is added without stopping BLE.
 - At two minutes, an unsynchronized clock stops the setup portal and shows
   `SEARCHING WIFI` on OLED or `WiFi` on TM1637 while trying last-resort
   open-Wi-Fi/NTP.
@@ -353,7 +353,7 @@ app; each connected clock will ask it for fresh time about every six hours. See 
 ### RTC is new, missing, or lost power
 
 1. The display shows `PAIR` while BLE advertises.
-2. After 10 seconds, the open Wi-Fi AP `KidsClock-xxxx` starts alongside BLE;
+2. After 10 seconds, the open Wi-Fi AP `ESPClock-xxxx` starts alongside BLE;
    the display continues to show `PAIR`.
 3. On a phone, join that network before the two-minute mark. As soon as its captive page loads, it reads
    the phone's current time and offset and sets the clock automatically.
@@ -426,13 +426,13 @@ adds no refresh animation.
 
 ## BLE time service
 
-BLE device name: `KidsClock-xxxx`, where the suffix comes from the ESP chip
+BLE device name: `ESPClock-xxxx`, where the suffix comes from the ESP chip
 identifier.
 
 The legacy BLE payload is deliberately split without truncation. The 27-byte
 primary advertisement contains general-discoverable/BR-EDR-unsupported flags,
 the complete 128-bit service UUID, and preferred connection intervals. Its
-16-byte scan response contains the complete `KidsClock-xxxx` local name. Both
+15-byte scan response contains the complete `ESPClock-xxxx` local name. Both
 remain below the 31-byte limit. Connectability is part of the advertising PDU;
 bondability is an SMP security policy, not an advertising-data flag. The
 advertising interval is 30–60 ms while new-phone onboarding is open and

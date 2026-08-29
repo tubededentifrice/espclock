@@ -194,7 +194,7 @@ void setup() {
   delay(250);
 
   const uint64_t chipId = ESP.getEfuseMac();
-  snprintf(bleName, sizeof(bleName), "KidsClock-%04X",
+  snprintf(bleName, sizeof(bleName), "ESPClock-%04X",
            static_cast<unsigned>(chipId & 0xFFFFU));
   snprintf(wifiName, sizeof(wifiName), "ESPClock-RadioTest-%04X",
            static_cast<unsigned>(chipId & 0xFFFFU));

@@ -150,7 +150,7 @@ void BleTimeService::begin(const TimeUpdateHandler handler) {
 
   const uint64_t chipId = ESP.getEfuseMac();
   char deviceName[24] = {};
-  snprintf(deviceName, sizeof(deviceName), "KidsClock-%04X",
+  snprintf(deviceName, sizeof(deviceName), "ESPClock-%04X",
            static_cast<unsigned>(chipId & 0xFFFFU));
 
   NimBLEDevice::init(deviceName);

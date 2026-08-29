@@ -211,8 +211,8 @@ final class ClockPreferenceStoreTests: XCTestCase {
         let secondDate = Date(timeIntervalSince1970: 1_735_776_000)
         store.setLastSync(firstDate, for: firstIdentifier)
         store.setLastSync(secondDate, for: secondIdentifier)
-        store.setBluetoothName("KidsClock-1234", for: firstIdentifier)
-        store.setBluetoothName("KidsClock-5678", for: secondIdentifier)
+        store.setBluetoothName("ESPClock-1234", for: firstIdentifier)
+        store.setBluetoothName("ESPClock-5678", for: secondIdentifier)
 
         store.removeClock(firstIdentifier)
 
@@ -221,7 +221,7 @@ final class ClockPreferenceStoreTests: XCTestCase {
         XCTAssertNil(store.bluetoothName(for: firstIdentifier))
         XCTAssertEqual(
             store.bluetoothName(for: secondIdentifier),
-            "KidsClock-5678"
+            "ESPClock-5678"
         )
     }
 
@@ -247,20 +247,20 @@ final class ClockViewStateTests: XCTestCase {
     @MainActor
     func testClockNameAcceptsAndNormalizesTheFirmwareIdentifier() {
         XCTAssertEqual(
-            ClockSyncManager.validatedClockName("KidsClock-a1b2"),
-            "KidsClock-A1B2"
+            ClockSyncManager.validatedClockName("ESPClock-a1b2"),
+            "ESPClock-A1B2"
         )
         XCTAssertNil(
-            ClockSyncManager.validatedClockName("KidsClock-not-a-clock")
+            ClockSyncManager.validatedClockName("ESPClock-not-a-clock")
         )
         XCTAssertNil(
             ClockSyncManager.validatedClockName("OtherClock-A1B2")
         )
         XCTAssertNil(
-            ClockSyncManager.validatedClockName("KidsClock-Ａ1B2")
+            ClockSyncManager.validatedClockName("ESPClock-Ａ1B2")
         )
         XCTAssertNil(
-            ClockSyncManager.validatedClockName("KidsClock-A1B2\0")
+            ClockSyncManager.validatedClockName("ESPClock-A1B2\0")
         )
     }
 }

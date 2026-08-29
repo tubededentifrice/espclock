@@ -120,6 +120,7 @@ final class ClockSyncManager: NSObject, ObservableObject {
     static let statusUUID = CBUUID(string: "7F510002-1B15-4DC7-9F3F-19B30A6F6A21")
     static let gapServiceUUID = CBUUID(string: "1800")
     static let deviceNameUUID = CBUUID(string: "2A00")
+    static let accessoryNamePrefix = "ESPClock-"
 
     @Published private(set) var clocks: [ClockViewState] = []
     @Published private(set) var setupText = "Starting accessory setup…"
@@ -203,7 +204,7 @@ final class ClockSyncManager: NSObject, ObservableObject {
 
         let descriptor = ASDiscoveryDescriptor()
         descriptor.bluetoothServiceUUID = Self.serviceUUID
-        descriptor.bluetoothNameSubstring = "KidsClock-"
+        descriptor.bluetoothNameSubstring = Self.accessoryNamePrefix
         descriptor.supportedOptions = [.bluetoothPairingLE]
 
         guard let image = UIImage(systemName: "clock.fill") else {
@@ -211,7 +212,7 @@ final class ClockSyncManager: NSObject, ObservableObject {
             return
         }
         let item = ASPickerDisplayItem(
-            name: "Kids Clock",
+            name: "ESPClock",
             productImage: image,
             descriptor: descriptor
         )
@@ -314,7 +315,7 @@ final class ClockSyncManager: NSObject, ObservableObject {
     }
 
     static func validatedClockName(_ candidate: String?) -> String? {
-        let prefix = "KidsClock-"
+        let prefix = Self.accessoryNamePrefix
         guard let candidate,
               candidate.hasPrefix(prefix) else {
             return nil
@@ -1220,7 +1221,7 @@ extension ClockSyncManager: @preconcurrency CBPeripheralDelegate {
         }) else {
             failClockSetup(
                 runtime,
-                message: "This accessory does not expose the Kids Clock service."
+                message: "This accessory does not expose the ESPClock service."
             )
             return
         }

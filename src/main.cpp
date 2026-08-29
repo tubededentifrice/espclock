@@ -117,7 +117,7 @@ void setup() {
                     clockTime.lastSyncUtc(), clockTime.utcNow());
 
   CLOCK_DIAGNOSTIC_PRINTF(
-      "Kids Clock boot: display=%s/%s, light=%s, RTC=%s, time=%s, "
+      "ESPClock boot: display=%s/%s, light=%s, RTC=%s, time=%s, "
       "offset=%d min, cpu=%u MHz\n",
                 clockDisplay.displayName(),
                 clockDisplay.displayAvailable() ? "ready" : "missing",

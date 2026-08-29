@@ -5,7 +5,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
-	<string>Kids Clock</string>
+	<string>ESPClock</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -37,10 +37,10 @@
 	</array>
 	<key>NSAccessorySetupBluetoothNames</key>
 	<array>
-		<string>KidsClock-</string>
+		<string>ESPClock-</string>
 	</array>
 	<key>NSBluetoothAlwaysUsageDescription</key>
-	<string>Kids Clock uses Bluetooth to set and periodically correct your clock’s time.</string>
+	<string>ESPClock uses Bluetooth to set and periodically correct your clock’s time.</string>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>bluetooth-central</string>

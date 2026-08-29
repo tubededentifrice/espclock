@@ -26,7 +26,7 @@ class DiagnosticParserTests(unittest.TestCase):
             "ESP_DIAG event=boot result=pass",
             "ESP_DIAG event=wifi_ap started=yes ssid=ESPClock-RadioTest-1234",
             "ESP_DIAG event=wifi_scan complete=yes networks=8 strongest_rssi=-42",
-            "ESP_DIAG event=ble_ready started=yes name=KidsClock-1234",
+            "ESP_DIAG event=ble_ready started=yes name=ESPClock-1234",
             "ESP_DIAG event=heartbeat free_heap=190000 ble_round_trip=no",
             "ESP_DIAG event=heartbeat free_heap=189000 ble_round_trip=no",
             "ESP_DIAG event=heartbeat free_heap=188000 ble_round_trip=yes",

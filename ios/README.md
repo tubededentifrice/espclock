@@ -1,4 +1,4 @@
-# Kids Clock iPhone companion
+# ESPClock iPhone companion
 
 This iOS 18+ app gives each added clock regular, timezone-aware synchronization
 without an Internet connection. It uses Apple's AccessorySetupKit for one-tap
@@ -67,15 +67,15 @@ TestFlight builds also expire.
 ## Pair the clock
 
 1. Power-cycle the clock that you want to add.
-2. Open **Kids Clock** and tap **Add Kids Clock** or **Add Another Clock** while
+2. Open **ESPClock** and tap **Add ESPClock** or **Add Another ESPClock** while
    that clock accepts new phones—during the first two minutes after boot.
-3. Select `KidsClock-xxxx` in Apple's accessory picker and approve Bluetooth
+3. Select `ESPClock-xxxx` in Apple's accessory picker and approve Bluetooth
    pairing.
 4. Wait until the app says **Connected and synchronized**.
 5. Repeat these steps for each additional clock.
 
 Each clock section title uses the complete Bluetooth name, such as
-`KidsClock-06E8`. The app reads this name from the advertisement or the standard
+`ESPClock-06E8`. The app reads this name from the advertisement or the standard
 GAP Device Name value and saves it for later launches.
 
 The no-app portal starts 10 seconds after boot if BLE has not synchronized. It
@@ -186,7 +186,7 @@ hold BOOT while applying power.
 4. Confirm the app initially says **Ready to add clock**. Bluetooth should be
    enabled globally; the app should be managed under the Accessories privacy
    page rather than receiving access to every nearby Bluetooth device.
-5. Tap **Add Kids Clock**, exercise setup or cancellation, and save both logs.
+5. Tap **Add ESPClock**, exercise setup or cancellation, and save both logs.
 
 The Xcode category `BLEOnboarding` records every `ASAccessorySession` event,
 every `CBCentralManager` state transition, picker error domain/code, and whether
@@ -222,7 +222,7 @@ identifiers.
 Before evaluating the picker, inspect the ESP with an independent BLE scanner
 on a second phone or Mac. During the two-minute `PAIR` window confirm:
 
-- complete local name `KidsClock-xxxx`;
+- complete local name `ESPClock-xxxx`;
 - complete service UUID `7F510000-1B15-4DC7-9F3F-19B30A6F6A21`;
 - a connectable legacy advertisement that continues throughout the window.
 
@@ -233,8 +233,8 @@ reconnects. Confirm both cadences over the air; an API log is not sufficient.
 
 The firmware explicitly emits a 27-byte primary advertisement: 3-byte
 general-discoverable/BR-EDR-unsupported flags, 18-byte complete 128-bit service
-UUID field, and 6-byte preferred-connection-interval field. The 16-byte scan
-response contains the complete 14-byte name plus its field overhead. Both are
+UUID field, and 6-byte preferred-connection-interval field. The 15-byte scan
+response contains the complete 13-byte name plus its field overhead. Both are
 below the 31-byte legacy packet limit.
 
 BLE has no general “pairable” advertising-data bit. The connectable PDU can be
@@ -345,7 +345,7 @@ alongside `NSAccessorySetupSupports`.
 
 On a qualified bare ESP32-C3 Super Mini, independent Mac scans received the
 complete service UUID/name advertisement at -45 dBm and the real
-`KidsClock-06E8` SoftAP at -35 dBm. The physical iPhone picker then discovered
+`ESPClock-06E8` SoftAP at -35 dBm. The physical iPhone picker then discovered
 and authorized the clock without broad Bluetooth access; firmware recorded a
 bonded encrypted connection and accepted the phone time with a `+240` minute
 offset, and the app received `time-accepted`. A comparison C3 could receive

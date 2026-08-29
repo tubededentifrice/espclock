@@ -11,7 +11,7 @@ namespace portalpage {
 
 constexpr char kHtml[] CLOCK_PORTAL_PAGE_STORAGE = R"HTML(
 <!doctype html><html><head><meta name="viewport" content="width=device-width">
-<title>Kids Clock</title><style>
+<title>ESPClock</title><style>
 body{font:18px system-ui,sans-serif;max-width:32rem;margin:3rem auto;padding:1rem;
 background:#101418;color:#f4f5f6;text-align:center}
 #s{margin-top:1.5rem}</style></head><body>
