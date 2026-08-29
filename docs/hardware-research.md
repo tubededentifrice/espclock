@@ -55,6 +55,7 @@ while retaining BLE as the highest-priority upgrade.
 |---|---|---|---|---|
 | Classic ESP32, 38-pin | 2.4 GHz 802.11b/g/n, Bluetooth Classic and BLE 4.2 | about 54.4 x 27.9 mm, usually Micro-USB | Dual-core 240 MHz and many GPIOs, but much larger; Classic Bluetooth adds no useful phone-time standard | Excellent bench prototype, unnecessarily large final board |
 | ESP32-C3 Super Mini | 2.4 GHz 802.11b/g/n and BLE 5; no Classic Bluetooth | about 22.5 x 18 mm, USB-C | 160 MHz RISC-V, 4 MB flash on common boards, 11 exposed GPIOs; enough for two display pins and one I2C bus | **Recommended** |
+| ESP32-C3 Super Mini Plus | Same C3 radios | about 22.5 x 18 mm, USB-C; external-antenna connector | GPIO8 WS2812 RGB LED; fixed power indicator | Supported OLED variant; use its dedicated profile |
 | LOLIN/Wemos S2 Mini | 2.4 GHz 802.11b/g/n; **no Bluetooth radio** | 34.3 x 25.4 mm, USB-C | Plenty of GPIO and native USB, but cannot satisfy the primary BLE requirement | Reject |
 | ESP32-C6 Mini N4 | 2.4 GHz 802.11b/g/n/ax, BLE 5.3, 802.15.4 Thread/Zigbee | roughly 22.5 x 18 mm for the generic Super Mini, USB-C | 160 MHz RISC-V, 512 KB SRAM, 4 MB flash. Better/newer radio feature set, but Thread, Zigbee and Wi-Fi 6 do not help this clock; board costs roughly twice a C3 and its hobby-board ecosystem is younger | Good drop-in alternative, not enough benefit here |
 
@@ -94,6 +95,15 @@ emitted the service advertisement at -48 to -45 dBm and a channel-1 SoftAP at
 -34 to -35 dBm. That isolates the failed board's shared RF transmit
 path/matching hardware; an API reporting “advertising active” or “SoftAP
 started” is not an over-the-air acceptance result.
+
+The C3 Super Mini Plus is also a generic board family. The tested-style Plus
+board has a WS2812 RGB LED on GPIO8. The firmware can send a black RGB frame,
+but this does not remove power from the LED controller. Its separate power
+indicator has no GPIO control. Use the dedicated
+`esp32-c3-super-mini-plus-oled-128x64` profile only after the board is identified
+as this Plus variant. The board description and pin assignment are documented
+by [ESPBoards](https://www.espboards.dev/esp32/esp32-c3-super-mini-plus/) and the
+[published Plus V2 schematic](https://mischianti.org/wp-content/uploads/2026/02/ESP32-C3-SuperMINI-V2-schema.pdf).
 
 ## Display choice
 
@@ -323,7 +333,7 @@ remains a bounded best-effort fallback, never the foundation of correct time.
 | 1 | 38-pin ESP32 DevKit | Solderless reference target | AED 15–30 | AED 25–55 |
 | 1 | 0.96-inch SSD1306 128x64 OLED | Default bench display profile | AED 5–12 | AED 15–35 |
 | 1 | 0.91-inch SSD1306 OLED, likely 128x32 | Optional comparison profile | AED 4–10 | AED 15–30 |
-| 1 | ESP32-C3 Super Mini, 4 MB, USB-C | Travel target; verify radio and pinout | AED 9–18 | AED 20–45 |
+| 1 | ESP32-C3 Super Mini or Plus, 4 MB, USB-C | Travel target; verify radio, pinout, and Plus GPIO8 LED | AED 9–18 | AED 20–45 |
 | 1 | TM1637 1.2-inch red 4-digit module with centre colon | Buy an assembled module, not bare digits | AED 15–40 | AED 35–70 |
 | 1 | BH1750FVI GY-302 I2C breakout | Power at 3.3 V; ADDR tied low/default | AED 3–8 | AED 10–30 |
 | 1 | DS3231 RTC breakout | Cheap units are clone-risk; qualify drift and verify no cell charger | AED 6–15 | AED 20–45 |
@@ -354,7 +364,7 @@ board before soldering):
 | GPIO4 | TM1637 CLK | Bit-banged display clock |
 | GPIO6 | I2C SDA to BH1750 SDA and DS3231 SDA | Shared 3.3 V bus |
 | GPIO7 | I2C SCL to BH1750 SCL and DS3231 SCL | Shared 3.3 V bus |
-| GPIO8 | On-board LED/strapping pin on some clones | Leave untouched; the build does not depend on its varying polarity or wiring |
+| GPIO8 | On-board LED/strapping pin | Leave untouched on a standard C3; the dedicated Plus profile uses it only for the onboard WS2812 after boot |
 | GPIO9 | Existing BOOT button | Hold five seconds after normal boot, then release, to clear sync trust/offset/bonds and restart; never require it in daily use |
 
 I2C addresses are compatible: BH1750 is `0x23` with ADDR low/default (`0x5C`

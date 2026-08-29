@@ -120,9 +120,13 @@ of silently working around it.
 6. For iOS changes, compile the generic-device app and test bundle and identify any physical-device-only gates.
 7. Review warnings, memory usage, pin assignments, failure paths, and docs/code consistency.
 8. Report anything that needs physical hardware verification explicitly.
-9. Commit completed task changes directly to `main`. Stage only task files and
-   preserve other worktree changes. Push `main`; if the push fails, keep the
-   verified local commit and report the blocker.
+9. Every agent and subagent that changes repository files must finish its task
+   by committing all completed changes in its scope directly to `main` and by
+   pushing `main`. Do not leave completed changes staged or uncommitted for
+   another agent. Stage only files in the task scope, preserve other worktree
+   changes, and coordinate shared-worktree commits so concurrent work is not
+   omitted or overwritten. If the push fails, keep the verified local commit
+   and report the blocker.
 
 ## Planning and self-review
 

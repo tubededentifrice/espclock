@@ -150,6 +150,10 @@
 #define CLOCK_RECOVERY_BUTTON_PIN 9
 #endif
 
+#ifndef CLOCK_ONBOARD_RGB_LED_PIN
+#define CLOCK_ONBOARD_RGB_LED_PIN -1
+#endif
+
 #ifndef CLOCK_RECOVERY_HOLD_MS
 #define CLOCK_RECOVERY_HOLD_MS 5000UL
 #endif
@@ -192,6 +196,7 @@ constexpr uint32_t kWifiResyncIntervalMs =
 constexpr uint32_t kLightSampleMs = CLOCK_LIGHT_SAMPLE_MS;
 constexpr uint32_t kPairingDisplayMs = CLOCK_PAIRING_DISPLAY_MS;
 constexpr uint8_t kRecoveryButtonPin = CLOCK_RECOVERY_BUTTON_PIN;
+constexpr int8_t kOnboardRgbLedPin = CLOCK_ONBOARD_RGB_LED_PIN;
 constexpr uint32_t kRecoveryHoldMs = CLOCK_RECOVERY_HOLD_MS;
 constexpr uint16_t kEarliestValidYear = 2024;
 constexpr uint16_t kLatestValidYear = 2099;
@@ -241,6 +246,8 @@ static_assert(CLOCK_ENABLE_OPEN_WIFI_FALLBACK == 0 ||
 static_assert(CLOCK_ENABLE_CAPTIVE_PORTAL_AUTOFILL == 0 ||
                   CLOCK_ENABLE_CAPTIVE_PORTAL_AUTOFILL == 1,
               "CLOCK_ENABLE_CAPTIVE_PORTAL_AUTOFILL must be 0 or 1");
+static_assert(kOnboardRgbLedPin >= -1 && kOnboardRgbLedPin <= 21,
+              "CLOCK_ONBOARD_RGB_LED_PIN must be -1 or a valid GPIO");
 static_assert(CLOCK_CAPTIVE_PORTAL_MAX_SUBMISSIONS >= 1 &&
                   CLOCK_CAPTIVE_PORTAL_MAX_SUBMISSIONS <= 3,
               "Captive portal submissions must be between 1 and 3");
@@ -261,6 +268,8 @@ static_assert(kBleResyncGraceMs >= 60000UL,
               "BLE resync grace must cover the bounded notification retries");
 
 #if defined(CONFIG_IDF_TARGET_ESP32)
+static_assert(kOnboardRgbLedPin == -1,
+              "The onboard RGB LED profile is only supported on ESP32-C3");
 static_assert(kCpuFrequencyMhz == 0 || kCpuFrequencyMhz == 80 ||
                   kCpuFrequencyMhz == 160 || kCpuFrequencyMhz == 240,
               "Classic ESP32 CPU frequency must be 80, 160, or 240 MHz");
@@ -288,6 +297,8 @@ constexpr bool c3ModulePinIsReserved(const uint8_t pin) {
 static_assert(!c3ModulePinIsReserved(kI2cSdaPin) &&
                   !c3ModulePinIsReserved(kI2cSclPin),
               "C3 I2C pins must avoid strapping and native-USB pins");
+static_assert(kOnboardRgbLedPin == -1 || kOnboardRgbLedPin == 8,
+              "The supported C3 Super Mini Plus RGB LED uses GPIO8");
 #if CLOCK_DISPLAY_DRIVER == CLOCK_DISPLAY_TM1637
 static_assert(!c3ModulePinIsReserved(kTm1637ClkPin) &&
                   !c3ModulePinIsReserved(kTm1637DioPin),

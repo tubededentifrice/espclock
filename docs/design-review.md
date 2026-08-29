@@ -299,6 +299,10 @@ day visibility.
 Pairing and stale-status animations must obey the same brightness ceiling. No
 full-brightness boot flash is acceptable in a dark bedroom.
 
+On a C3 Super Mini Plus, the dedicated 128x64 profile sends an all-zero frame
+to the GPIO8 WS2812 RGB LED during firmware startup. The board's fixed power
+indicator remains a hardware limitation because it has no GPIO control.
+
 #### Power and prototype construction
 
 - The compact travel build powers its qualified TM1637 module from 3.3 V. If that

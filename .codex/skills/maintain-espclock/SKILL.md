@@ -108,3 +108,8 @@ For iOS changes, also compile the unsigned generic-device app and test bundle
 with the commands in `ios/README.md`. Verify that AccessorySetupKit declarations
 match firmware advertising and explicitly leave pairing, restoration, and
 background behavior as physical-iPhone gates until tested.
+
+## Finish
+
+After self-review, complete the commit-and-push step in `AGENTS.md`. This step
+applies to every agent and subagent that changes repository files.

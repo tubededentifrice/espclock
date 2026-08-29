@@ -71,7 +71,7 @@ With USB disconnected:
 
 ## Compact travel-build stack
 
-- ESP32-C3 Super Mini, 4 MB, USB-C
+- ESP32-C3 Super Mini or Super Mini Plus, 4 MB, USB-C
 - red 1.2-inch, four-digit TM1637 module with centre colon
 - BH1750/GY-302 ambient-light module
 - DS3231 RTC module with a verified non-charging CR2032 arrangement
@@ -91,6 +91,13 @@ With USB disconnected:
 | `I2C_SCL` | GPIO7 | — | `SCL` | `SCL` | 3.3 V pull-ups only |
 
 Do not use GPIO2, GPIO8, or GPIO9 for modules; they are ESP32-C3 strapping pins. The board's existing GPIO9 BOOT button is intentionally retained for the five-second, powered-on recovery gesture. Leave GPIO18/GPIO19 alone because the Super Mini uses them for native USB.
+
+The C3 Super Mini Plus has a WS2812 RGB LED on GPIO8. For a Plus board with a
+128x64 OLED, flash `esp32-c3-super-mini-plus-oled-128x64`. The profile sends an
+all-zero RGB frame after the ROM completes its boot-pin checks. Do not connect
+an external module to GPIO8. The power indicator is wired to the power rail and
+software cannot turn it off. Remove its LED or series resistor only if you have
+the exact board schematic and can do the small surface-mount rework safely.
 
 BH1750 address is normally `0x23`; it becomes `0x5C` if the breakout's `ADDR` input is high. DS3231 is `0x68`. The TM1637 signals are not I2C and must stay on their own two pins.
 
@@ -169,6 +176,8 @@ With USB and CR2032 removed:
 - GPIO3/4/6/7 are not shorted to either rail.
 - SDA/SCL resistance to `3V3` indicates sensible effective pull-ups, roughly 2.2–10 kΩ.
 - No module net is connected to GPIO2/8/9/18/19.
+- On a Super Mini Plus, the onboard RGB LED on GPIO8 is the only permitted use
+  of GPIO8 and the dedicated firmware profile is selected.
 - Electrolytic polarity is correct.
 
 Continue with the full acceptance checklist in the project README before closing the case.

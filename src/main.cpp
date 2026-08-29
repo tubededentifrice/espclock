@@ -90,6 +90,12 @@ UserDisplayState displayState() {
 }  // namespace
 
 void setup() {
+#if CLOCK_ONBOARD_RGB_LED_PIN >= 0
+  // The C3 Super Mini Plus uses a WS2812 RGB LED on strapping pin GPIO8.
+  // Setup runs after the ROM sampled the strapping pins, so it is safe to
+  // transmit an all-zero frame here. The LED then stays dark.
+  neopixelWrite(static_cast<uint8_t>(CLOCK_ONBOARD_RGB_LED_PIN), 0, 0, 0);
+#endif
 #if CLOCK_ENABLE_DIAGNOSTICS
   CLOCK_DIAGNOSTIC_BEGIN(115200);
   delay(100);

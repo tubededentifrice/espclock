@@ -7,19 +7,24 @@ The reference solderless prototype uses a **full-size 38-pin ESP32 DevKit**, a
 this bring-up: once synchronized, the ESP keeps time while USB power remains
 connected. The compact travel build uses an **ESP32-C3 Super Mini**, preferably
 with a larger 1.2-inch TM1637 display and a battery-backed DS3231 after the
-behavior has been proven on the bench.
+behavior has been proven on the bench. The firmware also supports the **ESP32-C3
+Super Mini Plus** with a 128x64 OLED. Its dedicated profile keeps the onboard
+GPIO8 RGB LED dark.
 
 ## Printable case
 
-![ESPClock printable case, shown as an exploded isometric and front view](hardware/case/case-preview.svg)
+![ESPClock printable case print plate](hardware/case/case-preview.png)
 
 The case is checked in as the editable
-[Fusion 360 design](hardware/case/esp-clock-case.f3d) and print-ready
-[front](hardware/case/front.stl) and [back](hardware/case/back.stl) STL files.
-The preview above is generated directly from those STL meshes. Treat this as
-the current prototype enclosure: complete the enclosure, RF, thermal, drop, and
-child-access acceptance checks below before using it as a finished child-facing
-case.
+[Fusion 360 design](hardware/case/esp-clock-case.f3d), a ready-to-slice
+[3MF print project](hardware/case/esp-clock.3mf), and individual component
+meshes for the [front](hardware/case/front.stl),
+[back](hardware/case/back.stl), and [small part](hardware/case/cache.stl).
+Use the 3MF for the prepared print plate. The STL files keep design coordinates
+and can need placement in the slicer. The preview above comes from the 3MF
+print project. This is the current prototype enclosure. Complete the enclosure,
+RF, thermal, drop, and child-access acceptance checks below before you use it
+as a finished child-facing case.
 
 ## What it does
 
@@ -64,6 +69,7 @@ This is an honest limit of phone operating systems and profiles, not an ESP32 co
 |---|---:|---:|---|---|
 | **ESP32 38-pin** | **Yes** | **Classic + BLE** | Breadboard-friendly, usually Micro-USB | **Selected for the first solderless prototype** |
 | **ESP32-C3 Super Mini** | **Yes** | **BLE 5** | **About 22.5 × 18 mm, USB-C** | **Selected** |
+| ESP32-C3 Super Mini Plus | Yes | BLE 5 | Same small C3 format; onboard RGB LED and external-antenna connector | Supported 128x64 OLED variant |
 | S2 Mini | Yes | No | Small | Rejected: no Bluetooth |
 | C6 Mini N4 | Yes, including Wi-Fi 6 | BLE 5.3 | Small | Works, but its extra radios add no clock benefit |
 
@@ -93,7 +99,7 @@ in [docs/hardware-research.md](docs/hardware-research.md).
 | 1 | 0.96-inch SSD1306 OLED, 128x64 | Default bench display, normally `0x3C` | AED 5–12 | AED 15–35 |
 | 1 | 0.91-inch SSD1306 OLED, normally 128x32 | Optional comparison display | AED 4–10 | AED 15–30 |
 | 1 | BH1750/GY-302 light sensor | Ambient-light input; default address `0x23` | AED 3–8 | AED 10–30 |
-| 1 | ESP32-C3 Super Mini | Compact travel target | AED 9–18 | AED 20–45 |
+| 1 | ESP32-C3 Super Mini or Super Mini Plus | Compact travel target; Plus has an onboard RGB LED | AED 9–18 | AED 20–45 |
 | 1 | 1.2-inch red TM1637 clock display | Optional final-display candidate; centre colon | AED 15–40 | AED 35–70 |
 | 1 | DS3231 RTC module | Optional for bring-up, required for unplugged retention; verify a non-charging CR2032 arrangement | AED 6–15 | AED 20–45 |
 | 1 | Branded CR2032 | Primary, non-rechargeable coin cell | AED 2–5 | AED 5–10 |
@@ -140,7 +146,9 @@ The compact TM1637 travel wiring remains:
 
 Do not attach modules to C3 strapping pins GPIO2/8/9 or native-USB GPIO18/19.
 The 128x64 or 128x32 OLED can replace the TM1637 on the C3 by joining it to the
-same GPIO6/7 I2C bus.
+same GPIO6/7 I2C bus. On the Super Mini Plus, GPIO8 drives the onboard WS2812
+RGB LED. The dedicated Plus profile sends an all-zero frame after boot. The
+power indicator is connected to the power rail and firmware cannot turn it off.
 
 ### Travel-build wiring diagram
 
@@ -298,6 +306,7 @@ profiles are:
 | `esp32-devkit-oled-128x32` | 38-pin ESP32, likely geometry of the 0.91-inch OLED |
 | `esp32-devkit-tm1637` | 38-pin ESP32, TM1637 on GPIO25/26 |
 | `esp32-c3-oled-128x64` | C3, 128x64 OLED |
+| `esp32-c3-super-mini-plus-oled-128x64` | C3 Super Mini Plus, 128x64 OLED; GPIO8 RGB LED off |
 | `esp32-c3-oled-128x32` | C3, 128x32 OLED |
 | `esp32-c3-super-mini` | C3 travel target, TM1637 on GPIO4/3 |
 | `esp32-devkit-radio-diagnostic` | Destructive bare-board classic ESP32 acceptance image |
@@ -577,7 +586,7 @@ perimeter, but its one-minute cadence at levels 1–7 is unchanged. These change
 do not alter the 250 ms display policy, TM1637 colon cadence, portal service,
 recovery gesture, or BLE callbacks.
 
-The three C3 application profiles build Arduino as an ESP-IDF component with
+The C3 application profiles build Arduino as an ESP-IDF component with
 the checked-in `sdkconfig.c3.defaults`. This enables 80/40 MHz dynamic
 frequency scaling and Bluetooth controller modem sleep, so the processor and
 radio reduce power between events. The production log level also suppresses
@@ -625,7 +634,7 @@ This is one bench result, not a guaranteed value for other boards or displays.
 | `src/ClockCore.cpp` | Host-testable payload validation and light filtering |
 | `test/` | Native Unity tests |
 | `hardware/` | Wiring authority and protoboard placement |
-| `hardware/case/` | Fusion 360 case source, front/back STL exports, and generated preview |
+| `hardware/case/` | Fusion 360 case source, 3MF print project, component STL exports, and print-plate preview |
 | `docs/` | Research and adversarial review |
 | `ios/` | iOS 18+ AccessorySetupKit/Core Bluetooth companion and packet tests |
 | `AGENTS.md` | Repository-wide agent instructions |
@@ -654,12 +663,12 @@ Do not close or pot the case until every applicable physical item passes.
   diagnostic-runner parser and classification tests.
 - [x] `uv run --locked opendle-pio run -e
   esp32-devkit-oled-128x64` completes.
-- [x] All six display/board profiles compile in the final verification matrix.
+- [x] All seven display/board profiles compile in the final verification matrix.
 - [x] Both classic ESP32 and C3 radio-diagnostic profiles compile.
 - [x] No firmware compiler warnings are reported.
 - [x] Normal icon-inclusive Swift app and test-bundle builds complete for a
   generic iPhone target.
-- [x] All 19 multi-clock packet, preference, and onboarding-lifecycle XCTests
+- [x] All 29 multi-clock packet, preference, and onboarding-lifecycle XCTests
   pass on the iOS 26.5 Simulator.
 
 ### Power, display, and sensor
@@ -679,6 +688,8 @@ Do not close or pot the case until every applicable physical item passes.
   BLE connected, portal, Wi-Fi/NTP, and display brightness levels 0/2/7.
 - [ ] On each C3 display profile, Bluetooth reconnect and time sync work after
   at least 30 minutes with Bluetooth modem sleep active.
+- [ ] On a C3 Super Mini Plus, the RGB LED stays dark from firmware startup
+  through BLE and Wi-Fi activity. The fixed power indicator remains on.
 - [ ] The C3 remains stable with 80/40 MHz dynamic frequency scaling through a
   24-hour soak, repeated portal use, BLE reconnects, and Wi-Fi/NTP attempts.
 - [ ] Selected board regulator and wiring remain comfortably below unsafe temperature.
@@ -771,6 +782,9 @@ Do not close or pot the case until every applicable physical item passes.
 - Cheap C3, DS3231, BH1750, OLED, and large TM1637 modules vary. The 0.91-inch
   unit may even use an SH1106-compatible controller despite its listing.
   Qualify the exact parts before sealing a child-facing build.
+- The C3 Super Mini Plus power indicator has no GPIO control. The dedicated
+  profile turns off the GPIO8 RGB LED only. A dark power indicator needs a
+  board-level change, such as removal of its LED or series resistor.
 - An always-on OLED can suffer uneven pixel aging. The supported small OLEDs
   are excellent for solderless bring-up, but the larger TM1637 remains the
   leading final-display candidate until the two-metre and long-duration tests
