@@ -11,6 +11,11 @@ updates:
     patterns: ["*"]
     multi-ecosystem-group: "dependencies"
 
+  - package-ecosystem: "pip"
+    directory: "/tools"
+    patterns: ["*"]
+    multi-ecosystem-group: "dependencies"
+
   - package-ecosystem: "gitsubmodule"
     directory: "/"
     patterns: ["*"]
