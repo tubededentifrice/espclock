@@ -48,6 +48,14 @@ of silently working around it.
   An integrated GPIO8 WS2812 is the only exception. Drive it only after ROM
   strap sampling and only through a board-specific profile.
 - Do not use native USB GPIO18/GPIO19.
+- The assembled clock is potted in epoxy. Its BOOT and RESET buttons are not
+  accessible. Never flash this device with firmware, a board profile, or a
+  tool that can disable or reassign its USB/serial programming interface or
+  that can make the next upload require a button press. Before each upload,
+  confirm that the exact image and target preserve automatic, button-free
+  reflashing and reset. If this cannot be confirmed, build only and do not
+  flash. Disabling application log output is acceptable only when the
+  programming interface remains available.
 - C3 buses: TM1637 CLK GPIO4 and DIO GPIO3; I2C SDA GPIO6 and SCL GPIO7.
 - Classic ESP32 buses: TM1637 CLK GPIO25 and DIO GPIO26; I2C SDA GPIO21 and
   SCL GPIO22; its existing GPIO0 BOOT button is the recovery input.
