@@ -278,10 +278,12 @@ filelock==3.29.4 \
 future==1.0.0 \
     --hash=sha256:929292d34f5872e70396626ef385ec22355a1fae8ad29e1a734c3e43f9fbc216 \
     --hash=sha256:bd2968309307861edae1458a4f8a4f3598c03be43b97521076aebf5d94c07b05
-    # via -r tools/espidf-python-requirements.in
-idf-component-manager==1.5.3 \
-    --hash=sha256:02a414453264a75a75e70f72101af5a53dc65e0976892ccd295249e25281e4e6 \
-    --hash=sha256:415937c757f0be669afcd03a5722fc5fe97a62ec5cc7ac250411f1466c10059a
+    # via
+    #   -r tools/espidf-python-requirements.in
+    #   idf-component-manager
+idf-component-manager==1.2.2 \
+    --hash=sha256:3672f3e33a4d111005b1a7ae1612acd119d851d214faeab054e8bb10f6380720 \
+    --hash=sha256:59ddd520ed48ec4c6e66c617e2eb7fe47148acf2afe89d23db0c7ee2c125a0be
     # via -r tools/espidf-python-requirements.in
 idna==3.18 \
     --hash=sha256:7f952cbe720b688055e3f87de14f5c3e5fdaa8bc3928985c4077ca689de849a2 \
@@ -372,9 +374,7 @@ pycparser==3.0 ; implementation_name != 'PyPy' \
 pyparsing==2.3.1 \
     --hash=sha256:66c9268862641abcac4a96ba74506e594c884e3f57690a696d21ad8210ed667a \
     --hash=sha256:f6c5ef0d7480ad048c054c37632c67fca55299990fff127850181659eea33fc3
-    # via
-    #   -r tools/espidf-python-requirements.in
-    #   idf-component-manager
+    # via -r tools/espidf-python-requirements.in
 pyyaml==6.0.3 \
     --hash=sha256:00c4bdeba853cc34e7dd471f16b4114f4162dc03e6b7afcc2128711f0eca823c \
     --hash=sha256:0150219816b6a1fa26fb4699fb7daa9caf09eb1999f3b70fb6e786805e80375a \
@@ -480,12 +480,11 @@ tqdm==4.68.3 \
     --hash=sha256:00dfa48452b6b6cfae3dd9885636c23d3422d1ec97c66d96818cbd5e0821d482 \
     --hash=sha256:39832cc2def2789a6f29df83f172db7416cea70052c0907a57801c5f2fdccb03
     # via idf-component-manager
-urllib3==1.26.20 \
-    --hash=sha256:0ed14ccfbf1c30a9072c7ca157e4319b70d65f623e91e7b32fadb2853431016e \
-    --hash=sha256:40c2dc0c681e47eb8f90e7e27bf6ff7df2e677421fd46756da1161c39ca70d32
+urllib3==2.8.0 \
+    --hash=sha256:0cf3cae568d36aa9576b28dfb35f11328f1cb974ca7647d9475ebb86c75ac6e3 \
+    --hash=sha256:63bf2ead4c879426ebf22ef2a781eeb4aa3b4ae798a0435506f8687fd5bb9b63
     # via
     #   -r tools/espidf-python-requirements.in
-    #   idf-component-manager
     #   requests
 windows-curses==2.4.2 ; sys_platform == 'win32' \
     --hash=sha256:03c4ef0095ab8212ed964236d51b4d8c815f302c5a7de94831dae468f05ce333 \
